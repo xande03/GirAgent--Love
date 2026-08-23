@@ -48,7 +48,7 @@ type Turn = {
   content: string;
   reasoning?: string;
   changedPaths?: string[];
-  commitUrl?: string;
+  commitUrl?: string | undefined;
   imageIntent?: "add-to-project" | "reference-only";
   attachments?: Attachment[];
   error?: boolean;
