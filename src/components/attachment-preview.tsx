@@ -114,15 +114,16 @@ export function ComposerAttachments({
   attachments,
   onRemove,
 }: {
-  attachments: Att[];
+  attachments?: Att[] | null;
   onRemove: (name: string) => void;
 }) {
   const [lightbox, setLightbox] = useState<{ src: string; name: string } | null>(null);
 
-  const images = attachments.filter((a) => a.mime.startsWith("image/"));
-  const files = attachments.filter((a) => !a.mime.startsWith("image/"));
+  const list = attachments ?? [];
+  const images = list.filter((a) => a.mime?.startsWith("image/"));
+  const files = list.filter((a) => !a.mime?.startsWith("image/"));
 
-  if (attachments.length === 0) return null;
+  if (list.length === 0) return null;
 
   return (
     <>
@@ -159,13 +160,14 @@ export function ComposerAttachments({
 /* ══════════════════════════════════════════
    Chat message attachments (already sent)
    ══════════════════════════════════════════ */
-export function MessageAttachments({ attachments }: { attachments: Att[] }) {
+export function MessageAttachments({ attachments }: { attachments?: Att[] | null }) {
   const [lightbox, setLightbox] = useState<{ src: string; name: string } | null>(null);
 
-  const images = attachments.filter((a) => a.mime.startsWith("image/"));
-  const files = attachments.filter((a) => !a.mime.startsWith("image/"));
+  const list = attachments ?? [];
+  const images = list.filter((a) => a.mime?.startsWith("image/"));
+  const files = list.filter((a) => !a.mime?.startsWith("image/"));
 
-  if (attachments.length === 0) return null;
+  if (list.length === 0) return null;
 
   return (
     <>
