@@ -72,19 +72,35 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   );
 }
 
+/* Inline script to prevent theme flash — runs before React hydrates */
+const themeScript = `
+(function(){
+  try{
+    var t=localStorage.getItem('xerife-theme');
+    if(t==='light')document.documentElement.classList.remove('dark');
+    else document.documentElement.classList.add('dark');
+  }catch(e){document.documentElement.classList.add('dark');}
+})();
+`;
+
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "XerifeSwitch Agent" },
+      {
+        name: "description",
+        content: "Conecte seu token e repositório GitHub, descreva o que precisa e o agente de IA analisa, altera e comita direto na main.",
+      },
+      { name: "author", content: "XerifeSwitch" },
+      { property: "og:title", content: "XerifeSwitch Agent" },
+      {
+        property: "og:description",
+        content: "Agente de IA que entende todo o projeto, aplica correções e faz commit automático na branch main.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -99,6 +115,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
     ],
+    scripts: [
+      {
+        type: "text/javascript",
+        innerHTML: themeScript,
+      },
+    ],
   }),
   shellComponent: RootShell,
   component: RootComponent,
@@ -108,7 +130,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="pt-BR" className="dark">
       <head>
         <HeadContent />
       </head>
@@ -125,7 +147,6 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
     </QueryClientProvider>
   );
