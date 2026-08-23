@@ -1,3 +1,4 @@
+1-Melhore a responsaibidade para qualqeur dispositivo. 2-asucione alternancia entre o trma claro e escu
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation } from "@tanstack/react-query";
