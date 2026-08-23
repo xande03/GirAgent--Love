@@ -46,7 +46,7 @@ export const runAgent = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => RunSchema.parse(input))
   .handler(async ({ data }) => {
     const { parseRepoUrl, getRepoSnapshot, commitToMain } = await import("./github.server");
-    const { chat, extractJson, type ContentBlock } = await import("./ai.server");
+    const { chat, extractJson } = await import("./ai.server");
     const { classifyImageIntent, buildSystemPrompt, assetPath } = await import("./agent-core");
 
     const ref = parseRepoUrl(data.repoUrl);
