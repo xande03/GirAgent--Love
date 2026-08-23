@@ -73,6 +73,7 @@
   --input: oklch(0.88 0.01 250);
   --ring: oklch(0.55 0.18 175);
   --surface-grid: oklch(0.92 0.008 250);
+  --bg-frost: rgba(240, 242, 248, 0.6);
   --gradient-hero: linear-gradient(
     135deg,
     oklch(0.55 0.18 175 / 0.12) 0%,
@@ -124,6 +125,7 @@
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.551 0.027 264.364);
   --surface-grid: oklch(0.17 0.042 264);
+  --bg-frost: rgba(10, 10, 26, 0.65);
   --gradient-hero: linear-gradient(
     135deg,
     oklch(0.488 0.243 264.376 / 0.18) 0%,

@@ -179,9 +179,20 @@ function Home() {
   if (!repo) {
     return (
       <main className="flex min-h-dvh flex-col bg-background font-sans text-foreground">
+        {/* Background image */}
         <div
-          className="pointer-events-none fixed inset-0 opacity-60"
-          style={{ background: "var(--gradient-hero)" }}
+          className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
+          style={{ backgroundImage: "url(/robot-bg.png)" }}
+          aria-hidden
+        />
+        {/* Frosted glass overlay */}
+        <div
+          className="pointer-events-none fixed inset-0 z-0"
+          style={{
+            backgroundColor: "var(--bg-frost)",
+            backdropFilter: "blur(28px) saturate(150%)",
+            WebkitBackdropFilter: "blur(28px) saturate(150%)",
+          }}
           aria-hidden
         />
 
@@ -283,11 +294,22 @@ function Home() {
      ═══════════════════════════════════════════ */
   return (
     <main className="flex min-h-dvh flex-col bg-background font-sans text-foreground">
-      <div
-        className="pointer-events-none fixed inset-0 opacity-60"
-        style={{ background: "var(--gradient-hero)" }}
-        aria-hidden
-      />
+        {/* Background image */}
+        <div
+          className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
+          style={{ backgroundImage: "url(/robot-bg.png)" }}
+          aria-hidden
+        />
+        {/* Frosted glass overlay */}
+        <div
+          className="pointer-events-none fixed inset-0 z-0"
+          style={{
+            backgroundColor: "var(--bg-frost)",
+            backdropFilter: "blur(28px) saturate(150%)",
+            WebkitBackdropFilter: "blur(28px) saturate(150%)",
+          }}
+          aria-hidden
+        />
 
       {/* ── Header ── */}
       <header className="relative z-10 border-b border-border bg-background/80 backdrop-blur-md">
