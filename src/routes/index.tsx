@@ -198,16 +198,17 @@ function Home() {
           aria-hidden
         />
 
-        <header className="relative z-10 border-b border-border/50 bg-background/60 backdrop-blur-xl">
-          <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/50 bg-card/60 backdrop-blur-md">
-              <Github className="h-5 w-5 text-primary" />
+        <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-8 px-4 py-10">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border/50 bg-card/60 backdrop-blur-md">
+              <Github className="h-5.5 w-5.5 text-primary" />
             </span>
+            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+              XerifeSwitch Agent
+            </h1>
             <ThemeToggle />
           </div>
-        </header>
 
-        <div className="relative z-10 flex flex-1 items-center justify-center px-4 py-10">
           <div
             className="w-full max-w-sm space-y-3 rounded-3xl border border-border/50 bg-card/60 p-6 shadow-2xl backdrop-blur-2xl sm:p-8"
           >
