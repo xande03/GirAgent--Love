@@ -100,12 +100,14 @@ function Home() {
   const runMutation = useMutation({
     mutationFn: async (prompt: string) => {
       const history = turns.slice(-6).map((t) => ({ role: t.role, content: t.content }));
+      const lastUserTurn = [...turns].reverse().find((t) => t.role === "user");
+      const pendingAttachments = lastUserTurn?.attachments ?? [];
       return run({
         data: {
           token,
           repoUrl,
           instruction: prompt,
-          attachments: attachments.map(({ name, mime, dataUrl }) => ({ name, mime, dataUrl })),
+          attachments: pendingAttachments.map(({ name, mime, dataUrl }) => ({ name, mime, dataUrl })),
           history,
         },
       });
@@ -122,7 +124,6 @@ function Home() {
           imageIntent: res.imageIntent,
         },
       ]);
-      setAttachments([]);
     },
     onError: (err: Error) => {
       setTurns((t) => [...t, { role: "assistant", content: err.message, error: true }]);
@@ -159,8 +160,11 @@ function Home() {
   const submit = () => {
     const prompt = instruction.trim();
     if (!prompt || runMutation.isPending) return;
-    setTurns((t) => [...t, { role: "user", content: prompt, attachments }]);
+    const currentAttachments = attachments;
+    setTurns((t) => [...t, { role: "user", content: prompt, attachments: currentAttachments }]);
     setInstruction("");
+    setAttachments([]);
+    if (fileInput.current) fileInput.current.value = "";
     runMutation.mutate(prompt);
   };
 

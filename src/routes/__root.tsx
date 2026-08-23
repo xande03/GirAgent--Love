@@ -80,6 +80,11 @@ const themeScript = `
     if(t==='light')document.documentElement.classList.remove('dark');
     else document.documentElement.classList.add('dark');
   }catch(e){document.documentElement.classList.add('dark');}
+  if('serviceWorker' in navigator){
+    window.addEventListener('load',function(){
+      navigator.serviceWorker.register('/sw.js').catch(function(){});
+    });
+  }
 })();
 `;
 
@@ -101,6 +106,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "theme-color", content: "#6366f1" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "XerifeSwitch" },
+      { name: "mobile-web-app-capable", content: "yes" },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -114,6 +124,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: appCss,
       },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/pwa/icon-48.png", sizes: "48x48", type: "image/png" },
+      { rel: "apple-touch-icon", href: "/pwa/icon-192.png", sizes: "192x192" },
+      { rel: "manifest", href: "/manifest.json" },
     ],
     scripts: [
       {
