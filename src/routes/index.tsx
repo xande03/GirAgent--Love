@@ -151,7 +151,7 @@ function Home() {
             </span>
             <div>
               <h1 className="text-2xl font-bold tracking-tight">XerifeSwitch Agent</h1>
-              <p className="text-[10px] text-muted-foreground opacity-50">1. adicione botao de alternancia para tema clarocexescuro. 2- lmelhore a responssividade para qualqeur trla e dispositivo</p>
+              <p className="text-[10px] text-muted-foreground opacity-50">faca com um desenvolvedro: adicione botao de alternanca entre tema claro e escuro, melhore a responssividade para qualquer dispositivos</p>
               <p className="font-mono text-xs text-muted-foreground">
                 clone → indexa → raciocina → altera → commit automático em main
               </p>
