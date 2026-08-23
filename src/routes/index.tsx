@@ -151,6 +151,7 @@ function Home() {
             </span>
             <div>
               <h1 className="text-2xl font-bold tracking-tight">XerifeSwitch Agent</h1>
+              <p className="text-[10px] text-muted-foreground opacity-50">1-Melhore a responsaibidade para qualqeur dispositivo. 2-asucione alternancia entre o trma claro e escu</p>
               <p className="font-mono text-xs text-muted-foreground">
                 clone → indexa → raciocina → altera → commit automático em main
               </p>
