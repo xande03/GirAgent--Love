@@ -1,0 +1,185 @@
+const API = "https://api.github.com";
+
+export type RepoRef = { owner: string; repo: string };
+
+export type RepoFile = { path: string; content: string };
+
+export type RepoSnapshot = {
+  owner: string;
+  repo: string;
+  branch: string;
+  headSha: string;
+  paths: { path: string; size: number }[];
+  files: RepoFile[];
+  truncated: boolean;
+};
+
+const TEXT_EXT =
+  /\.(tsx?|jsx?|mjs|cjs|json|md|mdx|css|scss|sass|html|svg|txt|yml|yaml|toml|env\.example|py|rb|go|rs|java|kt|php|sh|sql|vue|svelte|astro|prisma|graphql|lock|gitignore|editorconfig|babelrc|eslintrc)$/i;
+
+const SKIP_DIR =
+  /(^|\/)(node_modules|\.git|dist|build|\.next|\.cache|coverage|vendor|\.turbo|out)(\/|$)/;
+
+export function parseRepoUrl(input: string): RepoRef {
+  const cleaned = input.trim().replace(/\.git$/, "").replace(/\/$/, "");
+  const m = cleaned.match(/(?:github\.com[/:])?([\w.-]+)\/([\w.-]+)$/);
+  if (!m) throw new Error("URL de repositório inválida. Use https://github.com/usuario/repositorio");
+  return { owner: m[1]!, repo: m[2]! };
+}
+
+async function gh(token: string, path: string, init?: RequestInit) {
+  const res = await fetch(`${API}${path}`, {
+    ...init,
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "User-Agent": "xerife-switch-agent",
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`GitHub API ${res.status}: ${body.slice(0, 500)}`);
+  }
+  return res.json() as Promise<any>;
+}
+
+export async function getRepoSnapshot(
+  token: string,
+  ref: RepoRef,
+  maxChars = 160_000,
+): Promise<RepoSnapshot> {
+  const repoInfo = await gh(token, `/repos/${ref.owner}/${ref.repo}`);
+  const branch: string = repoInfo.default_branch ?? "main";
+  const branchInfo = await gh(token, `/repos/${ref.owner}/${ref.repo}/branches/${branch}`);
+  const headSha: string = branchInfo.commit.sha;
+  const treeSha: string = branchInfo.commit.commit.tree.sha;
+
+  const tree = await gh(
+    token,
+    `/repos/${ref.owner}/${ref.repo}/git/trees/${treeSha}?recursive=1`,
+  );
+
+  const blobs = (tree.tree as any[])
+    .filter((n) => n.type === "blob" && !SKIP_DIR.test(n.path))
+    .map((n) => ({ path: n.path as string, size: (n.size as number) ?? 0, sha: n.sha as string }));
+
+  const readable = blobs
+    .filter((b) => TEXT_EXT.test(b.path) || !b.path.includes("."))
+    .filter((b) => b.size > 0 && b.size < 120_000)
+    .sort((a, b) => score(b.path) - score(a.path));
+
+  const files: RepoFile[] = [];
+  let used = 0;
+  let truncated = false;
+  for (const b of readable) {
+    if (used + b.size > maxChars) {
+      truncated = true;
+      continue;
+    }
+    try {
+      const blob = await gh(token, `/repos/${ref.owner}/${ref.repo}/git/blobs/${b.sha}`);
+      const content = decodeBase64(blob.content ?? "");
+      files.push({ path: b.path, content });
+      used += content.length;
+    } catch {
+      truncated = true;
+    }
+  }
+
+  return {
+    owner: ref.owner,
+    repo: ref.repo,
+    branch,
+    headSha,
+    paths: blobs.map(({ path, size }) => ({ path, size })),
+    files,
+    truncated,
+  };
+}
+
+function score(path: string) {
+  let s = 0;
+  if (/^(src|app|lib|components|pages|routes)\//.test(path)) s += 50;
+  if (/(index|main|app|layout|router)\.[jt]sx?$/i.test(path)) s += 40;
+  if (/package\.json|tsconfig|vite\.config|next\.config|readme/i.test(path)) s += 30;
+  if (/\.(tsx|ts|jsx|js|vue|svelte)$/.test(path)) s += 10;
+  if (path.split("/").length > 4) s -= 10;
+  return s;
+}
+
+export function decodeBase64(b64: string): string {
+  const bin = atob(b64.replace(/\n/g, ""));
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+export function encodeBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let bin = "";
+  bytes.forEach((b) => (bin += String.fromCharCode(b)));
+  return btoa(bin);
+}
+
+export type ChangeFile =
+  | { path: string; action: "upsert"; content: string; encoding?: "utf8" | "base64" }
+  | { path: string; action: "delete" };
+
+/** Commits directly to main (no branches, no PRs). */
+export async function commitToMain(
+  token: string,
+  ref: RepoRef,
+  changes: ChangeFile[],
+  message: string,
+): Promise<{ sha: string; url: string; branch: string }> {
+  const branch = "main";
+  let head: any;
+  try {
+    head = await gh(token, `/repos/${ref.owner}/${ref.repo}/git/ref/heads/${branch}`);
+  } catch {
+    throw new Error(
+      "A branch 'main' não existe nesse repositório. O agente comita apenas em main.",
+    );
+  }
+  const headSha = head.object.sha as string;
+  const headCommit = await gh(token, `/repos/${ref.owner}/${ref.repo}/git/commits/${headSha}`);
+  const baseTree = headCommit.tree.sha as string;
+
+  const treeItems: any[] = [];
+  for (const c of changes) {
+    if (c.action === "delete") {
+      treeItems.push({ path: c.path, mode: "100644", type: "blob", sha: null });
+      continue;
+    }
+    const blob = await gh(token, `/repos/${ref.owner}/${ref.repo}/git/blobs`, {
+      method: "POST",
+      body: JSON.stringify({
+        content: c.content,
+        encoding: c.encoding === "base64" ? "base64" : "utf-8",
+      }),
+    });
+    treeItems.push({ path: c.path, mode: "100644", type: "blob", sha: blob.sha });
+  }
+
+  const newTree = await gh(token, `/repos/${ref.owner}/${ref.repo}/git/trees`, {
+    method: "POST",
+    body: JSON.stringify({ base_tree: baseTree, tree: treeItems }),
+  });
+
+  const commit = await gh(token, `/repos/${ref.owner}/${ref.repo}/git/commits`, {
+    method: "POST",
+    body: JSON.stringify({ message, tree: newTree.sha, parents: [headSha] }),
+  });
+
+  await gh(token, `/repos/${ref.owner}/${ref.repo}/git/refs/heads/${branch}`, {
+    method: "PATCH",
+    body: JSON.stringify({ sha: commit.sha, force: false }),
+  });
+
+  return {
+    sha: commit.sha,
+    url: `https://github.com/${ref.owner}/${ref.repo}/commit/${commit.sha}`,
+    branch,
+  };
+}
