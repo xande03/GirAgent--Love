@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation } from "@tanstack/react-query";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   GitBranch,
@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   PanelLeftClose,
   PanelLeftOpen,
+  ArrowDown,
 } from "lucide-react";
 
 import { connectRepo, runAgent } from "@/lib/agent.functions";
@@ -72,6 +73,26 @@ function Home() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+
+  /* Auto-scroll to bottom when new messages arrive */
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [turns.length, runMutation.isPending]);
+
+  /* Detect if user scrolled up from bottom */
+  useEffect(() => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setShowScrollBtn(distFromBottom > 80);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
 
   const connectMutation = useMutation({
     mutationFn: () => connect({ data: { token, repoUrl } }),
@@ -271,7 +292,21 @@ function Home() {
           className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card"
           style={{ boxShadow: "var(--shadow-panel)" }}
         >
-          <div className="flex-1 space-y-4 overflow-auto p-4 sm:space-y-5 sm:p-5">
+          <div
+            ref={chatContainerRef}
+            className="relative flex-1 space-y-4 overflow-auto p-4 sm:space-y-5 sm:p-5"
+          >
+            {/* Scroll-to-bottom FAB */}
+            {showScrollBtn && (
+              <button
+                onClick={() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" })}
+                className="sticky bottom-2 left-1/2 z-10 -translate-x-1/2 flex items-center gap-1.5 rounded-full border border-border bg-card/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-lg backdrop-blur-sm transition-all hover:bg-accent hover:text-accent-foreground"
+                aria-label="Rolar para baixo"
+              >
+                <ArrowDown className="h-3.5 w-3.5" />
+                Nova mensagem
+              </button>
+            )}
             {turns.length === 0 && (
               <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground sm:p-6">
                 <p className="mb-2 font-semibold text-foreground">Como funciona</p>
@@ -370,6 +405,9 @@ function Home() {
                 aplicando mudanças e comitando...
               </p>
             )}
+
+            {/* Anchor for auto-scroll */}
+            <div ref={chatEndRef} />
           </div>
 
           {/* ── Composer ── */}
