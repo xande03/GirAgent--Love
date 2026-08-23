@@ -161,6 +161,7 @@ export const runAgent = createServerFn({ method: "POST" })
       ref,
       changes as never,
       parsed.commitMessage?.slice(0, 200) || `agente: ${data.instruction.slice(0, 60)}`,
+      snap.branch,
     );
 
     return {

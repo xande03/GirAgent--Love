@@ -144,20 +144,20 @@ export type ChangeFile =
   | { path: string; action: "upsert"; content: string; encoding?: "utf8" | "base64" }
   | { path: string; action: "delete" };
 
-/** Commits directly to main (no branches, no PRs). */
+/** Commits directly to the default branch (no branches, no PRs). */
 export async function commitToMain(
   token: string,
   ref: RepoRef,
   changes: ChangeFile[],
   message: string,
+  branch = "main",
 ): Promise<{ sha: string; url: string; branch: string }> {
-  const branch = "main";
   let head: any;
   try {
     head = await gh(token, `/repos/${ref.owner}/${ref.repo}/git/ref/heads/${branch}`);
   } catch {
     throw new Error(
-      "A branch 'main' não existe nesse repositório. O agente comita apenas em main.",
+      `A branch '${branch}' não existe nesse repositório. O agente comita apenas na branch padrão.`,
     );
   }
   const headSha = head.object.sha as string;
