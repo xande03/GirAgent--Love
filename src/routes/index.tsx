@@ -77,10 +77,6 @@ function Home() {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
-  /* Auto-scroll to bottom when new messages arrive */
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [turns.length, runMutation.isPending]);
 
   /* Detect if user scrolled up from bottom */
   useEffect(() => {
@@ -133,6 +129,11 @@ function Home() {
       setTurns((t) => [...t, { role: "assistant", content: err.message, error: true }]);
     },
   });
+
+  /* Auto-scroll to bottom when new messages arrive */
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [turns.length, runMutation.isPending]);
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const list = Array.from(files).slice(0, 6);
