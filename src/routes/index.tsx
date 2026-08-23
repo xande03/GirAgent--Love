@@ -1,4 +1,3 @@
-a api do deepseek esta respondendo?
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation } from "@tanstack/react-query";
