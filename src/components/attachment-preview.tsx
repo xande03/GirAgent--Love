@@ -114,7 +114,7 @@ export function ComposerAttachments({
   attachments,
   onRemove,
 }: {
-  attachments?: Att[] | null;
+  attachments?: Att[] | null | undefined;
   onRemove: (name: string) => void;
 }) {
   const [lightbox, setLightbox] = useState<{ src: string; name: string } | null>(null);
@@ -160,7 +160,7 @@ export function ComposerAttachments({
 /* ══════════════════════════════════════════
    Chat message attachments (already sent)
    ══════════════════════════════════════════ */
-export function MessageAttachments({ attachments }: { attachments?: Att[] | null }) {
+export function MessageAttachments({ attachments }: { attachments?: Att[] | null | undefined }) {
   const [lightbox, setLightbox] = useState<{ src: string; name: string } | null>(null);
 
   const list = attachments ?? [];
