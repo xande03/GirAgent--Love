@@ -1,6 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
+import type { ContentBlock } from "./ai.server";
+
 const AttachmentSchema = z.object({
   name: z.string(),
   mime: z.string(),
