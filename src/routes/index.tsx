@@ -16,6 +16,8 @@ import {
   ArrowDown,
   Unplug,
   ChevronDown,
+  KeyRound,
+  Link2,
 } from "lucide-react";
 
 import { connectRepo, runAgent } from "@/lib/agent.functions";
@@ -196,93 +198,58 @@ function Home() {
           aria-hidden
         />
 
-        <header className="relative z-10 border-b border-border bg-background/80 backdrop-blur-md">
-          <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card sm:h-10 sm:w-10">
-                <Github className="h-4 w-4 text-primary sm:h-5 sm:w-5" />
-              </span>
-              <div className="min-w-0">
-                <h1 className="truncate text-base font-bold tracking-tight sm:text-xl lg:text-2xl">
-                  XerifeSwitch Agent
-                </h1>
-                <p className="hidden font-mono text-[10px] text-muted-foreground sm:block">
-                  clone → indexa → raciocina → altera → commit automático em main
-                </p>
-              </div>
-            </div>
+        <header className="relative z-10 border-b border-border/50 bg-background/60 backdrop-blur-xl">
+          <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/50 bg-card/60 backdrop-blur-md">
+              <Github className="h-5 w-5 text-primary" />
+            </span>
             <ThemeToggle />
           </div>
         </header>
 
         <div className="relative z-10 flex flex-1 items-center justify-center px-4 py-10">
           <div
-            className="w-full max-w-md rounded-xl border border-border bg-card p-5 sm:p-7"
-            style={{ boxShadow: "var(--shadow-panel)" }}
+            className="w-full max-w-sm space-y-3 rounded-3xl border border-border/50 bg-card/60 p-6 shadow-2xl backdrop-blur-2xl sm:p-8"
           >
-            <div className="mb-6 text-center">
-              <span className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-border bg-background">
-                <GitBranch className="h-7 w-7 text-primary" />
-              </span>
-              <h2 className="text-lg font-bold">Conectar repositório</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Insira seu token e a URL do repositório para começar
-              </p>
+            <div className="flex items-center gap-3 rounded-2xl border border-border/40 bg-background/40 px-4 py-3 backdrop-blur-sm">
+              <KeyRound className="h-4.5 w-4.5 shrink-0 text-primary" />
+              <input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="ghp_..."
+                className="w-full bg-transparent font-mono text-sm outline-none placeholder:text-muted-foreground/60"
+              />
             </div>
 
-            <label className="mb-1 block font-mono text-xs text-muted-foreground">
-              GitHub token
-            </label>
-            <input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="ghp_..."
-              className="mb-3 w-full rounded-md border border-input bg-background px-3 py-2.5 font-mono text-sm outline-none focus:border-primary"
-            />
-
-            <label className="mb-1 block font-mono text-xs text-muted-foreground">
-              URL do repositório
-            </label>
-            <input
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="https://github.com/usuario/repo"
-              className="mb-5 w-full rounded-md border border-input bg-background px-3 py-2.5 font-mono text-sm outline-none focus:border-primary"
-            />
+            <div className="flex items-center gap-3 rounded-2xl border border-border/40 bg-background/40 px-4 py-3 backdrop-blur-sm">
+              <Link2 className="h-4.5 w-4.5 shrink-0 text-primary" />
+              <input
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+                placeholder="https://github.com/usuario/repo"
+                className="w-full bg-transparent font-mono text-sm outline-none placeholder:text-muted-foreground/60"
+              />
+            </div>
 
             <button
               onClick={() => connectMutation.mutate()}
               disabled={connectMutation.isPending || token.length < 10 || repoUrl.length < 5}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3.5 text-sm font-semibold text-primary-foreground transition-all hover:shadow-lg hover:shadow-primary/20 disabled:opacity-40"
             >
               {connectMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-4.5 w-4.5 animate-spin" />
               ) : (
-                <Sparkles className="h-4 w-4" />
+                <Sparkles className="h-4.5 w-4.5" />
               )}
-              {connectMutation.isPending ? "Indexando projeto..." : "Clonar e indexar"}
             </button>
 
             {connectMutation.isError && (
-              <div className="mt-4 flex gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
-                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div className="flex items-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-xs text-destructive backdrop-blur-sm">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
                 <span>{(connectMutation.error as Error).message}</span>
               </div>
             )}
-
-            <div className="mt-5 space-y-2 border-t border-border pt-4">
-              <p className="font-mono text-[11px] leading-relaxed text-muted-foreground">
-                O token é usado apenas nesta sessão para ler e comitar. Commits vão sempre para
-                <span className="text-primary"> main</span>, sem branches.
-              </p>
-              <ol className="list-inside list-decimal space-y-1 font-mono text-[11px] text-muted-foreground">
-                <li>Conecte o token + URL: o agente lê toda a árvore de arquivos.</li>
-                <li>Descreva o que alterar, adicionar ou corrigir.</li>
-                <li>O agente entende a estrutura, altera e comita direto na main.</li>
-                <li>Imagens em anexo só entram no repo quando pedido explicitamente.</li>
-              </ol>
-            </div>
           </div>
         </div>
       </main>
