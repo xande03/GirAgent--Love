@@ -15,9 +15,9 @@ import {
   ImageIcon,
   CheckCircle2,
   AlertTriangle,
-  PanelLeftClose,
-  PanelLeftOpen,
   ArrowDown,
+  Unplug,
+  ChevronDown,
 } from "lucide-react";
 
 import { connectRepo, runAgent } from "@/lib/agent.functions";
@@ -71,7 +71,7 @@ function Home() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showRepoInfo, setShowRepoInfo] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -94,7 +94,7 @@ function Home() {
     mutationFn: () => connect({ data: { token, repoUrl } }),
     onSuccess: (data) => {
       setRepo(data);
-      setSidebarOpen(false);
+      setShowRepoInfo(false);
     },
   });
 
@@ -165,9 +165,121 @@ function Home() {
     runMutation.mutate(prompt);
   };
 
+  const disconnect = () => {
+    setRepo(null);
+    setTurns([]);
+  };
+
+  /* ═══════════════════════════════════════════
+     STEP 1 — Connect screen (before repo)
+     ═══════════════════════════════════════════ */
+  if (!repo) {
+    return (
+      <main className="flex min-h-dvh flex-col bg-background font-sans text-foreground">
+        <div
+          className="pointer-events-none fixed inset-0 opacity-60"
+          style={{ background: "var(--gradient-hero)" }}
+          aria-hidden
+        />
+
+        <header className="relative z-10 border-b border-border bg-background/80 backdrop-blur-md">
+          <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card sm:h-10 sm:w-10">
+                <Github className="h-4 w-4 text-primary sm:h-5 sm:w-5" />
+              </span>
+              <div className="min-w-0">
+                <h1 className="truncate text-base font-bold tracking-tight sm:text-xl lg:text-2xl">
+                  XerifeSwitch Agent
+                </h1>
+                <p className="hidden font-mono text-[10px] text-muted-foreground sm:block">
+                  clone → indexa → raciocina → altera → commit automático em main
+                </p>
+              </div>
+            </div>
+            <ThemeToggle />
+          </div>
+        </header>
+
+        <div className="relative z-10 flex flex-1 items-center justify-center px-4 py-10">
+          <div
+            className="w-full max-w-md rounded-xl border border-border bg-card p-5 sm:p-7"
+            style={{ boxShadow: "var(--shadow-panel)" }}
+          >
+            <div className="mb-6 text-center">
+              <span className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-border bg-background">
+                <GitBranch className="h-7 w-7 text-primary" />
+              </span>
+              <h2 className="text-lg font-bold">Conectar repositório</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Insira seu token e a URL do repositório para começar
+              </p>
+            </div>
+
+            <label className="mb-1 block font-mono text-xs text-muted-foreground">
+              GitHub token
+            </label>
+            <input
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="ghp_..."
+              className="mb-3 w-full rounded-md border border-input bg-background px-3 py-2.5 font-mono text-sm outline-none focus:border-primary"
+            />
+
+            <label className="mb-1 block font-mono text-xs text-muted-foreground">
+              URL do repositório
+            </label>
+            <input
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+              placeholder="https://github.com/usuario/repo"
+              className="mb-5 w-full rounded-md border border-input bg-background px-3 py-2.5 font-mono text-sm outline-none focus:border-primary"
+            />
+
+            <button
+              onClick={() => connectMutation.mutate()}
+              disabled={connectMutation.isPending || token.length < 10 || repoUrl.length < 5}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              {connectMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              {connectMutation.isPending ? "Indexando projeto..." : "Clonar e indexar"}
+            </button>
+
+            {connectMutation.isError && (
+              <div className="mt-4 flex gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{(connectMutation.error as Error).message}</span>
+              </div>
+            )}
+
+            <div className="mt-5 space-y-2 border-t border-border pt-4">
+              <p className="font-mono text-[11px] leading-relaxed text-muted-foreground">
+                O token é usado apenas nesta sessão para ler e comitar. Commits vão sempre para
+                <span className="text-primary"> main</span>, sem branches.
+              </p>
+              <ol className="list-inside list-decimal space-y-1 font-mono text-[11px] text-muted-foreground">
+                <li>Conecte o token + URL: o agente lê toda a árvore de arquivos.</li>
+                <li>Descreva o que alterar, adicionar ou corrigir.</li>
+                <li>O agente entende a estrutura, altera e comita direto na main.</li>
+                <li>Imagens em anexo só entram no repo quando pedido explicitamente.</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  /* ═══════════════════════════════════════════
+     STEP 2 — Chat screen (after repo connected)
+     ═══════════════════════════════════════════ */
   return (
     <main className="flex min-h-dvh flex-col bg-background font-sans text-foreground">
-      {/* Gradient overlay */}
       <div
         className="pointer-events-none fixed inset-0 opacity-60"
         style={{ background: "var(--gradient-hero)" }}
@@ -178,17 +290,6 @@ function Home() {
       <header className="relative z-10 border-b border-border bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2.5 min-w-0">
-            <button
-              onClick={() => setSidebarOpen((v) => !v)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-foreground transition-colors hover:border-primary hover:text-primary lg:hidden"
-              aria-label="Toggle sidebar"
-            >
-              {sidebarOpen ? (
-                <PanelLeftClose className="h-4 w-4" />
-              ) : (
-                <PanelLeftOpen className="h-4 w-4" />
-              )}
-            </button>
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card sm:h-10 sm:w-10">
               <Github className="h-4 w-4 text-primary sm:h-5 sm:w-5" />
             </span>
@@ -196,99 +297,63 @@ function Home() {
               <h1 className="truncate text-base font-bold tracking-tight sm:text-xl lg:text-2xl">
                 XerifeSwitch Agent
               </h1>
-              <p className="hidden font-mono text-[10px] text-muted-foreground sm:block">
-                clone → indexa → raciocina → altera → commit automático em main
-              </p>
             </div>
           </div>
-          <ThemeToggle />
+
+          <div className="flex items-center gap-2">
+            {/* Repo badge */}
+            <button
+              onClick={() => setShowRepoInfo((v) => !v)}
+              className="hidden items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 font-mono text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary sm:flex"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+              <span>{repo.owner}/{repo.repo}</span>
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showRepoInfo ? "rotate-180" : ""}`} />
+            </button>
+
+            {/* Disconnect button (mobile: icon only) */}
+            <button
+              onClick={disconnect}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:border-destructive hover:text-destructive"
+              aria-label="Desconectar repositório"
+              title="Desconectar"
+            >
+              <Unplug className="h-4 w-4" />
+            </button>
+
+            <ThemeToggle />
+          </div>
         </div>
+
+        {/* Repo info dropdown */}
+        {showRepoInfo && (
+          <div className="border-t border-border bg-card/90 backdrop-blur-sm">
+            <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6">
+              <div className="flex flex-wrap gap-x-6 gap-y-1 font-mono text-xs text-muted-foreground">
+                <div>branch: <span className="text-foreground">{repo.branch}</span></div>
+                <div>arquivos: <span className="text-foreground">{repo.totalFiles}</span></div>
+                <div>indexados: <span className="text-foreground">{repo.indexedFiles}</span></div>
+                <div>head: <span className="text-foreground">{repo.headSha.slice(0, 7)}</span></div>
+              </div>
+              <details className="mt-2">
+                <summary className="cursor-pointer font-mono text-[11px] uppercase text-muted-foreground hover:text-foreground">
+                  ver arquivos indexados
+                </summary>
+                <div className="mt-1.5 max-h-40 overflow-auto rounded-md border border-border bg-background p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+                  {repo.paths.map((p) => (
+                    <div key={p.path} className="truncate">
+                      {p.path}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            </div>
+          </div>
+        )}
       </header>
 
-      {/* ── Body ── */}
-      <div className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6 lg:flex-row lg:gap-6 lg:py-6">
-
-        {/* ── Sidebar — Conexão ── */}
-        <aside
-          className={`
-            shrink-0 space-y-4 overflow-y-auto transition-all duration-300
-            lg:w-[340px] lg:max-w-[340px]
-            ${sidebarOpen ? "max-h-[60vh] w-full" : "hidden h-0 max-h-0 overflow-hidden lg:block lg:h-auto lg:max-h-none"}
-          `}
-        >
-          <div
-            className="rounded-xl border border-border bg-card p-4 sm:p-5"
-            style={{ boxShadow: "var(--shadow-panel)" }}
-          >
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold sm:mb-4">
-              <GitBranch className="h-4 w-4 text-primary" /> Conectar repositório
-            </h2>
-            <label className="mb-1 block font-mono text-xs text-muted-foreground">
-              GitHub token
-            </label>
-            <input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="ghp_..."
-              className="mb-3 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus:border-primary"
-            />
-            <label className="mb-1 block font-mono text-xs text-muted-foreground">
-              URL do repositório
-            </label>
-            <input
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="https://github.com/usuario/repo"
-              className="mb-4 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus:border-primary"
-            />
-            <button
-              onClick={() => connectMutation.mutate()}
-              disabled={connectMutation.isPending || token.length < 10 || repoUrl.length < 5}
-              className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
-            >
-              {connectMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
-              )}
-              {connectMutation.isPending ? "Indexando projeto..." : "Clonar e indexar"}
-            </button>
-            {connectMutation.isError && (
-              <p className="mt-3 flex gap-2 text-xs text-destructive">
-                <AlertTriangle className="h-4 w-4 shrink-0" />
-                erro. Resolva: {(connectMutation.error as Error).message}
-              </p>
-            )}
-            <p className="mt-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
-              O token é usado apenas nesta sessão para ler e comitar. Commits vão sempre para
-              <span className="text-primary"> main</span>, sem branches.
-            </p>
-          </div>
-
-          {repo && (
-            <div className="rounded-xl border border-border bg-card p-4 sm:p-5">
-              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-                <FileCode2 className="h-4 w-4 text-accent" /> {repo.owner}/{repo.repo}
-              </h3>
-              <dl className="space-y-1 font-mono text-xs text-muted-foreground">
-                <div>branch padrão: {repo.branch}</div>
-                <div>arquivos: {repo.totalFiles}</div>
-                <div>indexados: {repo.indexedFiles}</div>
-                <div>head: {repo.headSha.slice(0, 7)}</div>
-              </dl>
-              <div className="mt-3 max-h-48 overflow-auto rounded-md border border-border bg-background p-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
-                {repo.paths.map((p) => (
-                  <div key={p.path} className="truncate">
-                    {p.path}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </aside>
-
-        {/* ── Chat / agente ── */}
+      {/* ── Chat ── */}
+      <div className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-4 sm:px-6 sm:py-6">
         <div
           className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card"
           style={{ boxShadow: "var(--shadow-panel)" }}
@@ -310,18 +375,16 @@ function Home() {
             )}
             {turns.length === 0 && (
               <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground sm:p-6">
-                <p className="mb-2 font-semibold text-foreground">Como funciona</p>
+                <p className="mb-2 font-semibold text-foreground">Repositório conectado</p>
+                <p className="mb-3 text-xs">
+                  <span className="font-mono text-primary">{repo.owner}/{repo.repo}</span> — {repo.indexedFiles} arquivos indexados
+                </p>
+                <p className="mb-2 font-semibold text-foreground">Como usar</p>
                 <ol className="list-inside list-decimal space-y-1 font-mono text-xs">
-                  <li>Conecte o token + URL: o agente lê toda a árvore de arquivos.</li>
                   <li>Descreva o que alterar, adicionar ou corrigir.</li>
-                  <li>
-                    O agente entende a estrutura, garante que os arquivos &quot;conversem&quot; entre si e
-                    comita direto na main.
-                  </li>
-                  <li>
-                    Imagens em anexo só entram no repositório quando você pedir explicitamente;
-                    caso contrário são referência visual.
-                  </li>
+                  <li>O agente entende a estrutura e garante consistência entre arquivos.</li>
+                  <li>Alterações são commitadas direto na main automaticamente.</li>
+                  <li>Anexe imagens se precisar (arraste ou clique no clipe).</li>
                 </ol>
               </div>
             )}
@@ -478,18 +541,13 @@ function Home() {
                     submit();
                   }
                 }}
-                disabled={!repo}
                 rows={2}
-                placeholder={
-                  repo
-                    ? "Ex: corrija o hero da home e centralize o título"
-                    : "Conecte um repositório para liberar o agente"
-                }
-                className="min-h-[2.5rem] flex-1 resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-50"
+                placeholder="Ex: corrija o hero da home e centralize o título — arraste imagens aqui se precisar"
+                className="min-h-[2.5rem] flex-1 resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary"
               />
               <button
                 onClick={submit}
-                disabled={!repo || runMutation.isPending || !instruction.trim()}
+                disabled={runMutation.isPending || !instruction.trim()}
                 className="flex h-10 shrink-0 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-40 sm:px-4"
               >
                 <Send className="h-4 w-4" />
