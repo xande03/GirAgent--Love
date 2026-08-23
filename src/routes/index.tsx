@@ -10,9 +10,7 @@ import {
   Paperclip,
   Send,
   Sparkles,
-  Trash2,
   FileCode2,
-  ImageIcon,
   CheckCircle2,
   AlertTriangle,
   ArrowDown,
@@ -22,6 +20,7 @@ import {
 
 import { connectRepo, runAgent } from "@/lib/agent.functions";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { ComposerAttachments, MessageAttachments } from "@/components/attachment-preview";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -407,18 +406,7 @@ function Home() {
                   <ReactMarkdown>{t.content}</ReactMarkdown>
                 </div>
 
-                {t.attachments && t.attachments.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {t.attachments.map((a) => (
-                      <span
-                        key={a.name}
-                        className="flex items-center gap-1 rounded border border-border px-2 py-1 font-mono text-[11px] text-muted-foreground"
-                      >
-                        <ImageIcon className="h-3 w-3" /> {a.name}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                <MessageAttachments attachments={t.attachments} />
 
                 {t.imageIntent && (
                   <p className="mt-3 font-mono text-[11px] text-muted-foreground">
@@ -488,34 +476,10 @@ function Home() {
             }}
             className={`shrink-0 border-t p-3 transition-colors sm:p-4 ${dragging ? "border-primary bg-primary/5" : "border-border"}`}
           >
-            {attachments.length > 0 && (
-              <div className="mb-3 flex flex-wrap gap-2">
-                {attachments.map((a) => (
-                  <span
-                    key={a.name}
-                    className="flex items-center gap-2 rounded border border-border bg-background px-2 py-1 font-mono text-[11px]"
-                  >
-                    {a.mime.startsWith("image/") ? (
-                      <img
-                        src={a.dataUrl}
-                        alt={a.name}
-                        className="h-6 w-6 rounded object-cover"
-                      />
-                    ) : (
-                      <Paperclip className="h-3 w-3" />
-                    )}
-                    <span className="hidden sm:inline">{a.name}</span>
-                    <span className="sm:hidden">{a.name.slice(0, 12)}...</span>
-                    <button
-                      onClick={() => setAttachments((p) => p.filter((x) => x.name !== a.name))}
-                      aria-label={`Remover ${a.name}`}
-                    >
-                      <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
+            <ComposerAttachments
+              attachments={attachments}
+              onRemove={(name) => setAttachments((p) => p.filter((x) => x.name !== name))}
+            />
 
             <div className="flex items-end gap-2">
               <button
