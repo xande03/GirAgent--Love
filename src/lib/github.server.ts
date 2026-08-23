@@ -21,11 +21,29 @@ const SKIP_DIR =
   /(^|\/)(node_modules|\.git|dist|build|\.next|\.cache|coverage|vendor|\.turbo|out)(\/|$)/;
 
 export function parseRepoUrl(input: string): RepoRef {
-  const cleaned = input.trim().replace(/\.git$/, "").replace(/\/$/, "");
-  const m = cleaned.match(/(?:github\.com[/:])?([\w.-]+)\/([\w.-]+)$/);
-  if (!m) throw new Error("URL de repositório inválida. Use https://github.com/usuario/repositorio");
-  return { owner: m[1]!, repo: m[2]! };
+  let cleaned = input.trim();
+  // remove protocolo, credenciais embutidas, prefixo git@ e sufixos comuns
+  cleaned = cleaned
+    .replace(/^git\+/, "")
+    .replace(/^[a-z]+:\/\//i, "")
+    .replace(/^[^@/]+@/, "")
+    .replace(/^(www\.)?github\.com[:/]/i, "")
+    .replace(/[?#].*$/, "")
+    .replace(/\.git$/i, "")
+    .replace(/^\/+|\/+$/g, "");
+
+  const parts = cleaned.split("/").filter(Boolean);
+  if (parts.length < 2) {
+    throw new Error("URL de repositório inválida. Use https://github.com/usuario/repositorio");
+  }
+  const owner = parts[0]!;
+  const repo = parts[1]!;
+  if (!/^[\w.-]+$/.test(owner) || !/^[\w.-]+$/.test(repo)) {
+    throw new Error("URL de repositório inválida. Use https://github.com/usuario/repositorio");
+  }
+  return { owner, repo };
 }
+
 
 async function gh(token: string, path: string, init?: RequestInit) {
   const res = await fetch(`${API}${path}`, {
