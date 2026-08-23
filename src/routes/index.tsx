@@ -202,7 +202,7 @@ function Home() {
               {connectMutation.isError && (
                 <p className="mt-3 flex gap-2 text-xs text-destructive">
                   <AlertTriangle className="h-4 w-4 shrink-0" />
-                  {(connectMutation.error as Error).message}
+                  erro. Resolva: {(connectMutation.error as Error).message}
                 </p>
               )}
               <p className="mt-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
