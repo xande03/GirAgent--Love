@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 
 import { connectRepo, runAgent } from "@/lib/agent.functions";
-import { ThemeToggle } from "@/components/theme/theme-toggle";
+
 import { ComposerAttachments, MessageAttachments } from "@/components/attachment-preview";
 
 export const Route = createFileRoute("/")({
@@ -206,7 +206,6 @@ function Home() {
             <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
               XerifeSwitch Agent
             </h1>
-            <ThemeToggle />
           </div>
 
           <div
