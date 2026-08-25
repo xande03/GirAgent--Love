@@ -147,7 +147,7 @@ function Home() {
             const reader = new FileReader();
             reader.onload = () =>
               resolve({
-                name: file.name,
+                name: file.name || `clipboard-${Date.now()}.${file.type.split("/")[1] ?? "bin"}`,
                 mime: file.type || "application/octet-stream",
                 dataUrl: String(reader.result),
                 size: file.size,
@@ -159,6 +159,26 @@ function Home() {
     );
     setAttachments((prev) => [...prev, ...loaded].slice(0, 6));
   }, []);
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === "file") {
+          const f = item.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault();
+        void addFiles(files);
+      }
+    },
+    [addFiles],
+  );
 
   const submit = () => {
     const prompt = instruction.trim();
@@ -468,7 +488,8 @@ function Home() {
               setDragging(false);
               if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
             }}
-            className={`shrink-0 p-3 transition-all sm:p-4 ${dragging ? "bg-primary/5" : ""}`}
+            onPaste={handlePaste}
+            className={`shrink-0 border-t border-border/50 p-3 transition-all sm:p-4 ${dragging ? "bg-primary/5 border-primary/40" : ""}`}
           >
             <ComposerAttachments
               attachments={attachments}
@@ -476,7 +497,7 @@ function Home() {
             />
 
             <div
-              className={`flex items-end gap-2 rounded-2xl border bg-background/80 px-3 py-2.5 backdrop-blur-sm transition-all sm:gap-2.5 sm:px-4 sm:py-3 ${dragging ? "border-primary/60 shadow-lg shadow-primary/10" : "border-border/60 focus-within:border-primary/50 focus-within:shadow-md focus-within:shadow-primary/5"}`}
+              className={`flex items-end gap-2 rounded-2xl border bg-background/60 px-2 py-2 backdrop-blur-md transition-all sm:gap-2.5 sm:px-3 sm:py-2.5 ${dragging ? "border-primary/50 shadow-lg shadow-primary/10" : "border-border/40 focus-within:border-primary/40 focus-within:shadow-lg focus-within:shadow-primary/5"}`}
             >
               <input
                 ref={fileInput}
@@ -488,40 +509,44 @@ function Home() {
 
               <button
                 onClick={() => fileInput.current?.click()}
-                className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground/50 transition-all hover:bg-accent/60 hover:text-primary active:scale-90"
+                className="mb-px flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground/40 transition-all hover:bg-accent/50 hover:text-primary active:scale-90"
                 aria-label="Anexar arquivos"
+                title="Anexar (Ctrl+V para colar)"
               >
-                <Paperclip className="h-4 w-4" />
+                <Paperclip className="h-3.5 w-3.5" />
               </button>
 
-              <textarea
-                value={instruction}
-                onChange={(e) => setInstruction(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    submit();
-                  }
-                }}
-                rows={1}
-                placeholder="Descreva o que alterar, adicionar ou corrigir..."
-                className="min-h-[2.25rem] max-h-36 flex-1 resize-none bg-transparent py-1.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/40"
-                onInput={(e) => {
-                  const el = e.currentTarget;
-                  el.style.height = "auto";
-                  el.style.height = Math.min(el.scrollHeight, 144) + "px";
-                }}
-              />
+              <div className="relative min-w-0 flex-1">
+                <textarea
+                  value={instruction}
+                  onChange={(e) => setInstruction(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      submit();
+                    }
+                  }}
+                  onPaste={handlePaste}
+                  rows={1}
+                  placeholder="Descreva o que alterar, adicionar ou corrigir..."
+                  className="block w-full min-h-[2rem] max-h-40 resize-none bg-transparent py-1 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/35"
+                  onInput={(e) => {
+                    const el = e.currentTarget;
+                    el.style.height = "auto";
+                    el.style.height = Math.min(el.scrollHeight, 160) + "px";
+                  }}
+                />
+              </div>
 
               <button
                 onClick={submit}
                 disabled={runMutation.isPending || !instruction.trim()}
-                className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/25 transition-all hover:shadow-lg hover:shadow-primary/35 hover:brightness-110 active:scale-90 disabled:opacity-25 disabled:shadow-none disabled:brightness-100"
+                className="mb-px flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-md shadow-primary/25 transition-all hover:shadow-lg hover:shadow-primary/35 hover:brightness-110 active:scale-90 disabled:opacity-20 disabled:shadow-none disabled:brightness-100"
               >
                 {runMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <Send className="h-4 w-4" />
+                  <Send className="h-3.5 w-3.5" />
                 )}
               </button>
             </div>
