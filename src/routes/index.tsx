@@ -468,21 +468,16 @@ function Home() {
               setDragging(false);
               if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
             }}
-            className={`shrink-0 border-t p-3 transition-colors sm:p-4 ${dragging ? "border-primary bg-primary/5" : "border-border"}`}
+            className={`shrink-0 p-3 transition-all sm:p-4 ${dragging ? "bg-primary/5" : ""}`}
           >
             <ComposerAttachments
               attachments={attachments}
               onRemove={(name) => setAttachments((p) => p.filter((x) => x.name !== name))}
             />
 
-            <div className="flex items-end gap-2">
-              <button
-                onClick={() => fileInput.current?.click()}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:border-primary hover:text-primary"
-                aria-label="Enviar anexos"
-              >
-                <Paperclip className="h-4 w-4" />
-              </button>
+            <div
+              className={`flex items-end gap-2 rounded-2xl border bg-background/80 px-3 py-2.5 backdrop-blur-sm transition-all sm:gap-2.5 sm:px-4 sm:py-3 ${dragging ? "border-primary/60 shadow-lg shadow-primary/10" : "border-border/60 focus-within:border-primary/50 focus-within:shadow-md focus-within:shadow-primary/5"}`}
+            >
               <input
                 ref={fileInput}
                 type="file"
@@ -490,6 +485,15 @@ function Home() {
                 className="hidden"
                 onChange={(e) => e.target.files && void addFiles(e.target.files)}
               />
+
+              <button
+                onClick={() => fileInput.current?.click()}
+                className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground/50 transition-all hover:bg-accent/60 hover:text-primary active:scale-90"
+                aria-label="Anexar arquivos"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
+
               <textarea
                 value={instruction}
                 onChange={(e) => setInstruction(e.target.value)}
@@ -499,22 +503,28 @@ function Home() {
                     submit();
                   }
                 }}
-                rows={2}
-                placeholder="Ex: corrija o hero da home e centralize o título — arraste imagens aqui se precisar"
-                className="min-h-[2.5rem] flex-1 resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                rows={1}
+                placeholder="Descreva o que alterar, adicionar ou corrigir..."
+                className="min-h-[2.25rem] max-h-36 flex-1 resize-none bg-transparent py-1.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/40"
+                onInput={(e) => {
+                  const el = e.currentTarget;
+                  el.style.height = "auto";
+                  el.style.height = Math.min(el.scrollHeight, 144) + "px";
+                }}
               />
+
               <button
                 onClick={submit}
                 disabled={runMutation.isPending || !instruction.trim()}
-                className="flex h-10 shrink-0 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-40 sm:px-4"
+                className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/25 transition-all hover:shadow-lg hover:shadow-primary/35 hover:brightness-110 active:scale-90 disabled:opacity-25 disabled:shadow-none disabled:brightness-100"
               >
-                <Send className="h-4 w-4" />
-                <span className="hidden sm:inline">Aplicar</span>
+                {runMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
               </button>
             </div>
-            <p className="mt-2 hidden font-mono text-[11px] text-muted-foreground sm:block">
-              arraste e solte arquivos ou imagens aqui · Enter envia · commit automático em main
-            </p>
           </div>
         </div>
       </div>
