@@ -23,6 +23,7 @@ import {
 import { connectRepo, runAgent } from "@/lib/agent.functions";
 
 import { ComposerAttachments, MessageAttachments } from "@/components/attachment-preview";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 
 export const Route = createFileRoute("/")({
   head: () => ({
