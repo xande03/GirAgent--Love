@@ -158,14 +158,13 @@ export const runAgent = createServerFn({ method: "POST" })
       changes?: { path: string; action?: "upsert" | "delete"; content?: string }[];
     }>(answer);
 
-    if (parsed.needsClarification || !parsed.changes?.length) {
+    if (!parsed.changes?.length) {
       return {
         applied: false as const,
         reasoning: parsed.reasoning ?? "",
         summary:
           parsed.summary ??
-          parsed.question ??
-          "Preciso de mais detalhes para alterar o projeto com segurança.",
+          "Não foi possível gerar alterações para essa solicitação. Tente reformular com mais detalhes sobre o que deseja.",
         imageIntent: intent,
         commit: null,
         changedPaths: [] as string[],

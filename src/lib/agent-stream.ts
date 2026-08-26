@@ -146,7 +146,7 @@ export async function handleAgentStream(request: Request): Promise<Response> {
           changes?: { path: string; action?: "upsert" | "delete"; content?: string }[];
         }>(fullText);
 
-        if (parsed.needsClarification || !parsed.changes?.length) {
+        if (!parsed.changes?.length) {
           send(
             "result",
             JSON.stringify({
@@ -154,8 +154,7 @@ export async function handleAgentStream(request: Request): Promise<Response> {
               reasoning: parsed.reasoning ?? "",
               summary:
                 parsed.summary ??
-                parsed.question ??
-                "Preciso de mais detalhes para alterar o projeto com segurança.",
+                "Não foi possível gerar alterações para essa solicitação. Tente reformular com mais detalhes sobre o que deseja.",
               imageIntent: intent,
               commit: null,
               changedPaths: [],
