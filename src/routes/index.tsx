@@ -13,12 +13,14 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowDown,
-  Unplug,
+  LogOut,
   ChevronDown,
   KeyRound,
   Link2,
   BrainCircuit,
   Upload,
+  User,
+  Bot,
 } from "lucide-react";
 
 import { connectRepo } from "@/lib/agent.functions";
@@ -548,17 +550,18 @@ function Home() {
               />
             </button>
 
-            {/* Disconnect button (mobile: icon only) */}
+            <ThemeToggle />
+
+            {/* Disconnect button */}
             <button
               onClick={disconnect}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:border-destructive hover:text-destructive"
+              className="flex items-center gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs font-medium text-destructive transition-all hover:border-destructive/60 hover:bg-destructive/10 hover:shadow-sm hover:shadow-destructive/10 active:scale-95"
               aria-label="Desconectar repositório"
-              title="Desconectar"
+              title="Desconectar repositório e voltar ao painel inicial"
             >
-              <Unplug className="h-4 w-4" />
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Desconectar</span>
             </button>
-
-            <ThemeToggle />
           </div>
         </div>
 
@@ -638,96 +641,130 @@ function Home() {
             )}
 
             {turns.map((t, i) => (
-              <article
+              <div
                 key={i}
-                className={
-                  t.role === "user"
-                    ? "ml-auto max-w-[85%] rounded-lg border border-border bg-secondary p-3 sm:p-4"
-                    : "max-w-[92%] rounded-lg border border-border bg-background p-3 sm:p-4"
-                }
+                className={`flex gap-2.5 sm:gap-3 ${t.role === "user" ? "flex-row-reverse" : "flex-row"}`}
               >
-                <p className="mb-2 font-mono text-[10px] uppercase tracking-wide text-muted-foreground sm:text-[11px]">
-                  {t.role === "user" ? "você" : "agente"}
-                </p>
+                {/* Avatar */}
                 <div
-                  className={`prose prose-sm max-w-none text-sm leading-relaxed ${t.error ? "text-destructive" : ""}`}
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white sm:h-8 sm:w-8 ${
+                    t.role === "user"
+                      ? "bg-gradient-to-br from-primary/80 to-primary shadow-sm shadow-primary/25"
+                      : t.error
+                        ? "bg-gradient-to-br from-destructive/80 to-destructive shadow-sm shadow-destructive/25"
+                        : "bg-gradient-to-br from-chart-4 to-accent shadow-sm shadow-accent/20"
+                  }`}
                 >
-                  <ReactMarkdown>{t.content}</ReactMarkdown>
+                  {t.role === "user" ? (
+                    <User className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  ) : (
+                    <Bot className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  )}
                 </div>
 
-                <MessageAttachments attachments={t.attachments} />
-
-                {t.imageIntent === "add-to-project" && (
-                  <p className="mt-3 font-mono text-[11px] text-muted-foreground">
-                    imagens: adicionadas ao projeto
-                  </p>
-                )}
-
-                {t.reasoning && (
-                  <details className="mt-3 rounded-md border border-border bg-card p-3">
-                    <summary className="cursor-pointer font-mono text-[11px] uppercase text-muted-foreground">
-                      raciocínio / análise da estrutura
-                    </summary>
-                    <div className="prose prose-sm mt-2 max-w-none text-xs">
-                      <ReactMarkdown>{t.reasoning}</ReactMarkdown>
-                    </div>
-                  </details>
-                )}
-
-                {t.changedPaths && t.changedPaths.length > 0 && (
-                  <div className="mt-3 space-y-1 font-mono text-[11px] text-muted-foreground">
-                    {t.changedPaths.map((p) => (
-                      <div key={p} className="flex items-center gap-2">
-                        <CheckCircle2 className="h-3 w-3 text-primary" /> {p}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {t.commitUrl && (
-                  <a
-                    href={t.commitUrl}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="mt-3 inline-flex items-center gap-2 rounded-md border border-primary px-3 py-1.5 font-mono text-[11px] text-primary hover:bg-primary/10"
+                {/* Bubble */}
+                <div
+                  className={`max-w-[82%] sm:max-w-[78%] ${
+                    t.role === "user"
+                      ? "rounded-2xl rounded-tr-md border border-primary/20 bg-primary/10 px-3.5 py-2.5 sm:px-4 sm:py-3"
+                      : t.error
+                        ? "rounded-2xl rounded-tl-md border border-destructive/20 bg-destructive/8 px-3.5 py-2.5 sm:px-4 sm:py-3"
+                        : "rounded-2xl rounded-tl-md border border-border bg-card px-3.5 py-2.5 sm:px-4 sm:py-3"
+                  }`}
+                >
+                  <p
+                    className={`mb-1.5 text-[10px] font-semibold uppercase tracking-wider sm:text-[11px] ${
+                      t.role === "user" ? "text-primary" : "text-muted-foreground"
+                    }`}
                   >
-                    <GitBranch className="h-3 w-3" /> commit enviado para main
-                  </a>
-                )}
-              </article>
+                    {t.role === "user" ? "Você" : "Agente"}
+                  </p>
+                  <div
+                    className={`prose prose-sm max-w-none text-sm leading-relaxed ${t.error ? "text-destructive" : ""}`}
+                  >
+                    <ReactMarkdown>{t.content}</ReactMarkdown>
+                  </div>
+
+                  <MessageAttachments attachments={t.attachments} />
+
+                  {t.imageIntent === "add-to-project" && (
+                    <p className="mt-2 font-mono text-[11px] text-primary/80">
+                      imagens adicionadas ao projeto
+                    </p>
+                  )}
+
+                  {t.reasoning && (
+                    <details className="mt-3 rounded-lg border border-border/60 bg-background/60 p-2.5">
+                      <summary className="cursor-pointer font-mono text-[11px] uppercase tracking-wide text-muted-foreground hover:text-foreground">
+                        raciocínio / análise
+                      </summary>
+                      <div className="prose prose-sm mt-2 max-w-none text-xs">
+                        <ReactMarkdown>{t.reasoning}</ReactMarkdown>
+                      </div>
+                    </details>
+                  )}
+
+                  {t.changedPaths && t.changedPaths.length > 0 && (
+                    <div className="mt-2.5 space-y-1 font-mono text-[11px] text-muted-foreground">
+                      {t.changedPaths.map((p) => (
+                        <div key={p} className="flex items-center gap-2">
+                          <CheckCircle2 className="h-3 w-3 text-primary" /> {p}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {t.commitUrl && (
+                    <a
+                      href={t.commitUrl}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="mt-2.5 inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/8 px-3 py-1.5 font-mono text-[11px] font-medium text-primary transition-colors hover:bg-primary/15"
+                    >
+                      <GitBranch className="h-3 w-3" /> commit na main
+                    </a>
+                  )}
+                </div>
+              </div>
             ))}
 
             {/* ── Streaming progress indicator ── */}
             {isStreaming && (
-              <article className="max-w-[92%] rounded-lg border border-primary/30 bg-primary/5 p-3 sm:p-4">
-                <p className="mb-2 font-mono text-[10px] uppercase tracking-wide text-primary sm:text-[11px]">
-                  agente
-                </p>
-                {/* Phase indicator */}
-                <div className="flex items-center gap-2 mb-2">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                  <span className="text-xs font-medium text-primary">
-                    {PHASE_LABELS[streamPhase]}
-                  </span>
-                  {streamPhase === "thinking" && (
-                    <BrainCircuit className="h-3.5 w-3.5 text-primary/60" />
-                  )}
-                  {streamPhase === "committing" && (
-                    <Upload className="h-3.5 w-3.5 text-primary/60" />
-                  )}
-                  {streamPhase === "snapshot" && (
-                    <Github className="h-3.5 w-3.5 text-primary/60" />
+              <div className="flex gap-2.5 sm:gap-3">
+                {/* Agent avatar */}
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-chart-4 to-accent text-white shadow-sm shadow-accent/20 sm:h-8 sm:w-8">
+                  <Bot className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                </div>
+                <div className="max-w-[82%] sm:max-w-[78%] rounded-2xl rounded-tl-md border border-primary/30 bg-primary/5 px-3.5 py-2.5 sm:px-4 sm:py-3">
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-primary sm:text-[11px]">
+                    Agente
+                  </p>
+                  {/* Phase indicator */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                    <span className="text-xs font-medium text-primary">
+                      {PHASE_LABELS[streamPhase]}
+                    </span>
+                    {streamPhase === "thinking" && (
+                      <BrainCircuit className="h-3.5 w-3.5 text-primary/60" />
+                    )}
+                    {streamPhase === "committing" && (
+                      <Upload className="h-3.5 w-3.5 text-primary/60" />
+                    )}
+                    {streamPhase === "snapshot" && (
+                      <Github className="h-3.5 w-3.5 text-primary/60" />
+                    )}
+                  </div>
+                  {/* Streaming text preview */}
+                  {streamText && (
+                    <div className="rounded-lg border border-border/50 bg-card/50 p-2.5">
+                      <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
+                        {streamText}
+                      </pre>
+                    </div>
                   )}
                 </div>
-                {/* Streaming text preview */}
-                {streamText && (
-                  <div className="rounded-md border border-border/50 bg-card/50 p-2.5">
-                    <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
-                      {streamText}
-                    </pre>
-                  </div>
-                )}
-              </article>
+              </div>
             )}
 
             {/* Anchor for auto-scroll */}
