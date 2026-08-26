@@ -211,7 +211,13 @@ export async function handleAgentStream(request: Request): Promise<Response> {
         );
         send("phase", JSON.stringify({ phase: "done" }));
       } catch (err) {
-        send("error", JSON.stringify({ message: (err as Error).message }));
+        const errMsg = (err as Error).message ?? String(err);
+        // Translate cryptic abort errors into user-friendly messages
+        if (errMsg.includes("aborted") || errMsg.includes("AbortError")) {
+          send("error", JSON.stringify({ message: "A requisição ao modelo de IA excedeu o tempo limite. Tente novamente com uma descrição mais curta ou sem imagens." }));
+        } else {
+          send("error", JSON.stringify({ message: errMsg }));
+        }
         send("phase", JSON.stringify({ phase: "done" }));
       } finally {
         controller.close();

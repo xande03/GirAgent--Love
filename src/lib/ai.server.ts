@@ -8,6 +8,7 @@ export type ChatMessage = {
 };
 
 const REQUEST_TIMEOUT_MS = 120_000; // 2 minutes
+const REQUEST_TIMEOUT_WITH_IMAGES_MS = 240_000; // 4 minutes for vision requests
 const DEFAULT_MAX_TOKENS = 16_384;
 
 function getLlmConfig() {
@@ -24,9 +25,11 @@ function getLlmConfig() {
  */
 export async function chat(messages: ChatMessage[], opts?: { temperature?: number; maxTokens?: number }) {
   const { key, baseUrl, model } = getLlmConfig();
+  const hasImages = messages.some((m) => Array.isArray(m.content));
+  const timeoutMs = hasImages ? REQUEST_TIMEOUT_WITH_IMAGES_MS : REQUEST_TIMEOUT_MS;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   const send = async (msgs: ChatMessage[]) => {
     try {
@@ -84,7 +87,6 @@ export async function chat(messages: ChatMessage[], opts?: { temperature?: numbe
     }
   };
 
-  const hasImages = messages.some((m) => Array.isArray(m.content));
   try {
     return await send(messages);
   } catch (err) {
@@ -114,8 +116,10 @@ export async function* chatStream(
   opts?: { temperature?: number; maxTokens?: number },
 ): AsyncGenerator<string, void, undefined> {
   const { key, baseUrl, model } = getLlmConfig();
+  const hasImages = messages.some((m) => Array.isArray(m.content));
+  const timeoutMs = hasImages ? REQUEST_TIMEOUT_WITH_IMAGES_MS : REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   const sendStream = async function* (msgs: ChatMessage[]) {
     const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -176,7 +180,6 @@ export async function* chatStream(
   };
 
   try {
-    const hasImages = messages.some((m) => Array.isArray(m.content));
     if (!hasImages) {
       yield* sendStream(messages);
     } else {
@@ -184,6 +187,10 @@ export async function* chatStream(
       try {
         yield* sendStream(messages);
       } catch (err) {
+        // Reset timeout for the fallback attempt so it gets a full window
+        clearTimeout(timeout);
+        timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
         // Fallback: strip images and retry
         const flattened = messages.map((m) => ({
           role: m.role,

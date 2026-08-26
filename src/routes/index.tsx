@@ -26,6 +26,50 @@ import { connectRepo } from "@/lib/agent.functions";
 import { ComposerAttachments, MessageAttachments } from "@/components/attachment-preview";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 
+/* ── Image compression helpers ── */
+const MAX_IMG_DIM = 1280;
+const IMG_QUALITY = 0.75;
+
+function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const canvas = document.createElement("canvas");
+      let { width, height } = img;
+      if (width > MAX_IMG_DIM || height > MAX_IMG_DIM) {
+        const scale = MAX_IMG_DIM / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL(file.type.startsWith("image/png") ? "image/png" : "image/jpeg", IMG_QUALITY));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Falha ao comprimir imagem")); };
+    img.src = url;
+  });
+}
+
+async function readFileAsAttachment(file: File): Promise<Attachment> {
+  const isImage = file.type.startsWith("image/");
+  const dataUrl = isImage ? await compressImage(file) : await new Promise<string>((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result));
+    r.onerror = () => rej(new Error("Falha ao ler o arquivo"));
+    r.readAsDataURL(file);
+  });
+  return {
+    name: file.name || `clipboard-${Date.now()}.${file.type.split("/")[1] ?? "bin"}`,
+    mime: file.type || "application/octet-stream",
+    dataUrl,
+    size: file.size,
+  };
+}
+
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
@@ -131,23 +175,7 @@ function Home() {
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const list = Array.from(files).slice(0, 6);
-    const loaded = await Promise.all(
-      list.map(
-        (file) =>
-          new Promise<Attachment>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () =>
-              resolve({
-                name: file.name || `clipboard-${Date.now()}.${file.type.split("/")[1] ?? "bin"}`,
-                mime: file.type || "application/octet-stream",
-                dataUrl: String(reader.result),
-                size: file.size,
-              });
-            reader.onerror = () => reject(new Error("Falha ao ler o arquivo"));
-            reader.readAsDataURL(file);
-          }),
-      ),
-    );
+    const loaded = await Promise.all(list.map(readFileAsAttachment));
     setAttachments((prev) => [...prev, ...loaded].slice(0, 6));
   }, []);
 
