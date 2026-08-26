@@ -119,8 +119,10 @@ export const runAgent = createServerFn({ method: "POST" })
       images.length === 0
         ? "Nenhuma imagem foi anexada."
         : intent === "add-to-project"
-          ? `Foram anexadas ${images.length} imagem(ns). Elas são REFERÊNCIA VISUAL essencial — analise-as detalhadamente para entender o que o usuário deseja. Além disso, essas imagens serão gravadas no repositório em ${assetPath("<nome>")} — referencie esses caminhos no código que criar.`
-          : `Foram anexadas ${images.length} imagem(ns) como REFERÊNCIA VISUAL essencial — analise-as detalhadamente para entender layouts, cores, posições, componentes e o que o usuário deseja. NÃOgrave essas imagens no repositório, mas USE o que você vê nelas para guiar suas modificações de código.`;
+          ? `Foram anexadas ${images.length} imagem(ns) que serão SALVAS no repositório. Os caminhos exatos de cada imagem são:
+${images.map((img) => `- ${assetPath(img.name)}`).join("\n")}
+Analise-as detalhadamente como REFERÊNCIA VISUAL para entender o que o usuário deseja. Use EXATAMENTE os caminhos acima ao referenciar essas imagens no código (imports, tags img, background-image, etc.). NUNCA invente ou assuma outros caminhos de imagem.`
+          : `Foram anexadas ${images.length} imagem(ns) APENAS como REFERÊNCIA VISUAL — analise-as detalhadamente para entender layouts, cores, posições, componentes e o que o usuário deseja. Essas imagens NÃO serão salvas no repositório. Portanto, NUNCA crie imports, caminhos ou referências a arquivos de imagem para essas imagens anexadas. Em vez disso, reproduza o visual usando CSS, HTML, SVG ou imagens que já existem no repositório.`;
 
     const userBlocks: ContentBlock[] = [
       {

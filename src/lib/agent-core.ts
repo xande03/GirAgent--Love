@@ -2,27 +2,50 @@ export type ImageIntent = "add-to-project" | "reference-only";
 
 const ADD_PATTERNS = [
   /adicion\w*\s+(a|as|essa|esta|essas|estas|a\s+imagem|as\s+imagens|o\s+arquivo)/i,
-  /(imagem|imagens|logo|foto|banner|ícone|icone|print)[^.]{0,40}(no|ao|dentro do|para o|à)\s+projeto/i,
-  /(inserir|insira|inclua|incluir|coloque|colocar|suba|subir|use|usar|salve|salvar)[^.]{0,40}(imagem|imagens|logo|foto|banner|ícone|icone)[^.]{0,40}(no|ao|dentro do|para o|como)\s+(projeto|repositório|repositorio|assets|pasta|site|página|pagina|código|codigo)/i,
+  /(imagem|imagens|logo|foto|banner|ícone|icone|print|splash|background|fundo)[^.]{0,40}(no|ao|dentro do|para o|à|no)\s+projeto/i,
+  /(inserir|insira|inclua|incluir|coloque|colocar|suba|subir|use|usar|salve|salvar)[^.]{0,40}(imagem|imagens|logo|foto|banner|ícone|icone|print)[^.]{0,40}(no|ao|dentro do|para o|como)\s+(projeto|repositório|repositorio|assets|pasta|site|página|pagina|código|codigo)/i,
   /(imagem|imagens)[^.]{0,30}(deve|devem)\s+(fazer parte|ser adicionad|ser inserid|ser us\w+ no projeto)/i,
+  /(substitu\w*|troque|mude|altere|atualize|trocar|mudar|alterar|atualizar)[^.]{0,30}(a\s+)?(imagem|logo|foto|banner|ícone|icone|splash|fundo)/i,
+  /esta\s+(imagem|logo|foto|banner)/i,
+  /essa\s+(imagem|logo|foto|banner)/i,
+  /(a|aqui|neste)\s+(imagem|print|screenshot|anexo)\s+(anexad|enviad|que|acima)/i,
+  /coloque\s+(esta|essa|a)\s+(imagem|logo|foto)/i,
+  /(use|usar|usando)\s+(esta|essa|a|as)\s+(imagem|imagens|logo|foto)/i,
+  /(integra|incorpore|adicione)\s+(no|ao)\s+(projeto|app|site)/i,
 ];
 
 const REFERENCE_PATTERNS = [
   /(observe|veja|olhe|analise|entenda|interprete|repare|note)[^.]{0,30}(imagem|imagens|anexo|print|captura)/i,
   /(conforme|como|de acordo com|segundo|baseado n\w+|se baseando)[^.]{0,30}(imagem|imagens|anexo|print|captura|mostra)/i,
   /(imagem|anexo)[^.]{0,20}(de|como)\s+(refer[êe]ncia|exemplo|modelo)/i,
+  /(replic|reproduz|copi|imit|clone)[^.]{0,30}(layout|design|interface|tela|página|pagina|ui)/i,
+  /(fa\w*a\s+igual|deixe\s+igual|mantenha\s+igual)[^.]{0,20}(a|ao|à)/i,
 ];
 
 /**
  * Decides whether attached images should be committed into the repository or
- * used only as visual reference for reasoning. Reference wins ties.
+ * used only as visual reference for reasoning.
+ *
+ * Heuristic: if the user explicitly says to LOOK/ANALYZE/REPLICATE the image,
+ * it's reference-only. Otherwise, if images are attached and the instruction
+ * talks about images at all (replace, add, use, this image, etc.), treat as
+ * add-to-project. When truly ambiguous, add-to-project is the safer default
+ * (an extra file is harmless; a missing image breaks the app).
  */
 export function classifyImageIntent(instruction: string): ImageIntent {
-  const wantsAdd = ADD_PATTERNS.some((r) => r.test(instruction));
   const isReference = REFERENCE_PATTERNS.some((r) => r.test(instruction));
-  if (wantsAdd && !isReference) return "add-to-project";
-  if (wantsAdd && isReference) return "reference-only";
-  return "reference-only";
+  if (isReference) return "reference-only";
+
+  const wantsAdd = ADD_PATTERNS.some((r) => r.test(instruction));
+  if (wantsAdd) return "add-to-project";
+
+  // Default: if images are attached and instruction mentions visual elements,
+  // assume the user wants them in the project
+  const mentionsImage = /\b(imagem|imagens|logo|foto|banner|splash|fundo|ícone|icone|background)\b/i.test(instruction);
+  if (mentionsImage) return "add-to-project";
+
+  // Truly ambiguous — safer to add (extra file is harmless, missing breaks app)
+  return "add-to-project";
 }
 
 export function assetPath(fileName: string) {
@@ -79,7 +102,7 @@ export function sanitizeInstruction(input: string): { clean: string; flagged: bo
 export function validateChanges(
   changes: { path: string; action?: string; content?: string }[],
 ): void {
-  const DANGEROUS_PATHS = [/^\.git\//, /^\.env(\.|$)/, /^\.ssh\//, /^id_rsa/, /^id_ed25519/];
+  const DANGEROUS_PATHS = [/^\.git\//, /^\.env(|$)/, /^\.ssh\//, /^id_rsa/, /^id_ed25519/];
   for (const change of changes) {
     // Block path traversal
     if (change.path.startsWith("/") || change.path.includes("..")) {
@@ -107,7 +130,8 @@ IMAGENS ANEXADAS (MUITO IMPORTANTE):
 - Sempre ANALISE CUIDADOSAMENTE cada imagem anexada. Elas contêm informações visuais essenciais para entender o que o usuário deseja.
 - Use as imagens como REFERÊNCIA VISUAL direta: entenda layouts, cores, tamanhos, posições, textos, ícones, estrutura de componentes e qualquer detalhe visual relevante.
 - Baseie suas modificações de código no que você VÊ nas imagens. Se o usuário envia um screenshot, reproduza ou ajuste o código para que o resultado visual corresponda ao mostrado.
-- Quando a política indicar que imagens devem ser SALVAS no repositório, referencie os caminhos informados no código que você criar/modificar.
+- Quando a política indicar que imagens devem ser SALVAS no repositório, use EXATAMENTE os caminhos informados na política. NUNCA invente caminhos de imagem — use os caminhos que a política informar.
+- Quando a política indicar que as imagens são APENAS REFERÊNCIA, NUNCA crie imports, caminhos ou referências a arquivos de imagem que não existem no repositório. Em vez disso, reproduza o visual usando CSS/HTML/SVG.
 - Nunca ignore as imagens anexadas. Elas são parte fundamental da solicitação.
 
 RACIOCÍNIO ADAPTATIVO (obrigatório, antes de escrever código):
