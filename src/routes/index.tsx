@@ -156,11 +156,18 @@ function Home() {
       const items = e.clipboardData?.items;
       if (!items) return;
       const files: File[] = [];
+      const seen = new Set<string>();
       for (let i = 0; i < items.length; i++) {
         const item = items[i]!;
         if (item.kind === "file") {
           const f = item.getAsFile();
-          if (f) files.push(f);
+          if (f) {
+            const key = `${f.name}:${f.type}:${f.size}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              files.push(f);
+            }
+          }
         }
       }
       if (files.length > 0) {
@@ -385,7 +392,7 @@ function Home() {
      STEP 2 — Chat screen (after repo connected)
      ═══════════════════════════════════════════ */
   return (
-    <main className="flex min-h-dvh flex-col bg-background font-sans text-foreground">
+    <main className="flex h-dvh flex-col overflow-hidden bg-background font-sans text-foreground">
       {/* Background image */}
       <div
         className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
@@ -404,7 +411,7 @@ function Home() {
       />
 
       {/* ── Header ── */}
-      <header className="relative z-10 border-b border-border bg-background/80 backdrop-blur-md">
+      <header className="sticky top-0 z-20 shrink-0 border-b border-border bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card sm:h-10 sm:w-10">
@@ -541,12 +548,9 @@ function Home() {
 
                 <MessageAttachments attachments={t.attachments} />
 
-                {t.imageIntent && (
+                {t.imageIntent === "add-to-project" && (
                   <p className="mt-3 font-mono text-[11px] text-muted-foreground">
-                    imagens:{" "}
-                    {t.imageIntent === "add-to-project"
-                      ? "adicionadas ao projeto"
-                      : "usadas apenas como referência"}
+                    imagens: adicionadas ao projeto
                   </p>
                 )}
 
@@ -671,7 +675,6 @@ function Home() {
                       submit();
                     }
                   }}
-                  onPaste={handlePaste}
                   rows={1}
                   placeholder="Descreva o que alterar, adicionar ou corrigir..."
                   className="block w-full min-h-[2rem] max-h-40 resize-none bg-transparent py-1 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/35"

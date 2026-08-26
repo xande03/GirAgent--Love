@@ -99,8 +99,8 @@ export async function handleAgentStream(request: Request): Promise<Response> {
           images.length === 0
             ? "Nenhuma imagem foi anexada."
             : intent === "add-to-project"
-              ? `Foram anexadas ${images.length} imagem(ns) e o usuário PEDIU que elas façam parte do projeto. Elas serão gravadas no repositório em ${assetPath("<nome>")} — referencie esses caminhos no código.`
-              : `Foram anexadas ${images.length} imagem(ns) apenas como REFERÊNCIA VISUAL para entender o pedido. NÃO adicione essas imagens ao repositório e não crie arquivos de imagem.`;
+              ? `Foram anexadas ${images.length} imagem(ns). Elas são REFERÊNCIA VISUAL essencial — analise-as detalhadamente para entender o que o usuário deseja. Além disso, essas imagens serão gravadas no repositório em ${assetPath("<nome>")} — referencie esses caminhos no código que criar.`
+              : `Foram anexadas ${images.length} imagem(ns) como REFERÊNCIA VISUAL essencial — analise-as detalhadamente para entender layouts, cores, posições, componentes e o que o usuário deseja. NÃO grave essas imagens no repositório, mas USE o que você vê nelas para guiar suas modificações de código.`;
 
         const userBlocks: ContentBlock[] = [
           {
