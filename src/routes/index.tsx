@@ -26,49 +26,130 @@ import { connectRepo } from "@/lib/agent.functions";
 import { ComposerAttachments, MessageAttachments } from "@/components/attachment-preview";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 
-/* ── Image compression helpers ── */
-const MAX_IMG_DIM = 1280;
-const IMG_QUALITY = 0.75;
+/* ── Image handling helpers ── */
+const MAX_IMG_DIM = 1600;
+const IMG_QUALITY = 0.82;
+/** Formats kept byte-exact (vector / animated / already efficient). */
+const PASSTHROUGH_IMAGE_MIMES = new Set([
+  "image/svg+xml",
+  "image/gif",
+  "image/avif",
+  "image/heic",
+  "image/heif",
+  "image/x-icon",
+  "image/vnd.microsoft.icon",
+]);
 
-function compressImage(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const canvas = document.createElement("canvas");
-      let { width, height } = img;
-      if (width > MAX_IMG_DIM || height > MAX_IMG_DIM) {
-        const scale = MAX_IMG_DIM / Math.max(width, height);
-        width = Math.round(width * scale);
-        height = Math.round(height * scale);
-      }
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d")!;
-      ctx.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL(file.type.startsWith("image/png") ? "image/png" : "image/jpeg", IMG_QUALITY));
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Falha ao comprimir imagem")); };
-    img.src = url;
-  });
+const EXT_BY_MIME: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/svg+xml": "svg",
+  "image/avif": "avif",
+  "image/bmp": "bmp",
+  "image/heic": "heic",
+  "image/heif": "heif",
+  "image/tiff": "tiff",
+  "image/x-icon": "ico",
+  "image/vnd.microsoft.icon": "ico",
+};
+
+function withExtension(name: string, mime: string) {
+  const ext = EXT_BY_MIME[mime];
+  if (!ext) return name;
+  const base = name.replace(/\.[^./\\]+$/, "") || "imagem";
+  return `${base}.${ext}`;
 }
 
-async function readFileAsAttachment(file: File): Promise<Attachment> {
-  const isImage = file.type.startsWith("image/");
-  const dataUrl = isImage ? await compressImage(file) : await new Promise<string>((res, rej) => {
+function supportsCanvasType(type: string) {
+  try {
+    const c = document.createElement("canvas");
+    c.width = c.height = 1;
+    return c.toDataURL(type).startsWith(`data:${type}`);
+  } catch {
+    return false;
+  }
+}
+
+function readAsDataUrl(file: File) {
+  return new Promise<string>((res, rej) => {
     const r = new FileReader();
     r.onload = () => res(String(r.result));
     r.onerror = () => rej(new Error("Falha ao ler o arquivo"));
     r.readAsDataURL(file);
   });
+}
+
+/** Normalizes any bitmap image into a web-safe format, preserving transparency. */
+function compressImage(file: File): Promise<{ dataUrl: string; mime: string }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      try {
+        const canvas = document.createElement("canvas");
+        let { naturalWidth: width, naturalHeight: height } = img;
+        if (!width || !height) throw new Error("dimensões inválidas");
+        if (width > MAX_IMG_DIM || height > MAX_IMG_DIM) {
+          const scale = MAX_IMG_DIM / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const hasAlpha = /png|webp|avif|heic|heif|svg/.test(file.type);
+        let outMime =
+          file.type === "image/webp" && supportsCanvasType("image/webp")
+            ? "image/webp"
+            : hasAlpha
+              ? "image/png"
+              : "image/jpeg";
+        let dataUrl = canvas.toDataURL(outMime, IMG_QUALITY);
+        if (!dataUrl.startsWith(`data:${outMime}`)) {
+          outMime = "image/png";
+          dataUrl = canvas.toDataURL("image/png");
+        }
+        resolve({ dataUrl, mime: outMime });
+      } catch (e) {
+        reject(e instanceof Error ? e : new Error("Falha ao processar imagem"));
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Falha ao decodificar imagem"));
+    };
+    img.src = url;
+  });
+}
+
+async function readFileAsAttachment(file: File): Promise<Attachment> {
+  const type = file.type || "application/octet-stream";
+  const isImage = type.startsWith("image/");
+  const fallbackName = file.name || `anexo-${Date.now()}.${type.split("/")[1] ?? "bin"}`;
+
+  if (isImage && !PASSTHROUGH_IMAGE_MIMES.has(type)) {
+    try {
+      const { dataUrl, mime } = await compressImage(file);
+      return { name: withExtension(fallbackName, mime), mime, dataUrl, size: file.size };
+    } catch {
+      // Fall through to raw read so nothing is silently dropped.
+    }
+  }
+
+  const dataUrl = await readAsDataUrl(file);
   return {
-    name: file.name || `clipboard-${Date.now()}.${file.type.split("/")[1] ?? "bin"}`,
-    mime: file.type || "application/octet-stream",
+    name: isImage ? withExtension(fallbackName, type) : fallbackName,
+    mime: type,
     dataUrl,
     size: file.size,
   };
 }
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -439,7 +520,7 @@ function Home() {
       />
 
       {/* ── Header ── */}
-      <header className="sticky top-0 z-20 shrink-0 border-b border-border bg-background/80 backdrop-blur-md">
+      <header className="sticky top-0 z-30 shrink-0 border-b border-border bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/70">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card sm:h-10 sm:w-10">
@@ -517,14 +598,14 @@ function Home() {
       </header>
 
       {/* ── Chat ── */}
-      <div className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-4 sm:px-6 sm:py-6">
+      <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col px-4 py-4 sm:px-6 sm:py-6">
         <div
           className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card"
           style={{ boxShadow: "var(--shadow-panel)" }}
         >
           <div
             ref={chatContainerRef}
-            className="relative flex-1 space-y-4 overflow-auto p-4 sm:space-y-5 sm:p-5"
+            className="relative min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden overscroll-contain p-4 [-webkit-overflow-scrolling:touch] sm:space-y-5 sm:p-5"
           >
             {/* Scroll-to-bottom FAB */}
             {showScrollBtn && (
