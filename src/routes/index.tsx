@@ -209,6 +209,33 @@ const PHASE_LABELS: Record<StreamPhase, string> = {
   done: "",
 };
 
+/* ── Session persistence keys ── */
+const SESSION_KEY = "xerife-session";
+const LAST_REPO_KEY = "xerife-last-repo";
+
+function saveSession(token: string, repoUrl: string, repo: NonNullable<RepoState>) {
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token, repoUrl, repo }));
+    localStorage.setItem(LAST_REPO_KEY, repoUrl);
+  } catch {}
+}
+
+function loadSession(): { token: string; repoUrl: string; repo: RepoState } | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
+function clearSession() {
+  try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+}
+
+function getLastRepoUrl(): string | null {
+  try { return localStorage.getItem(LAST_REPO_KEY); } catch { return null; }
+}
+
 function Home() {
   const connect = useServerFn(connectRepo);
 
@@ -231,6 +258,28 @@ function Home() {
   const [streamPhase, setStreamPhase] = useState<StreamPhase>("done");
   const [streamText, setStreamText] = useState("");
 
+  // Restore session on mount (prevents unexpected disconnect on remount/hydration)
+  const sessionRestored = useRef(false);
+  if (!sessionRestored.current) {
+    sessionRestored.current = true;
+    const saved = loadSession();
+    if (saved) {
+      // Use functional updates to avoid overwriting if already set (SSR hydration)
+      setToken((cur) => cur || saved.token);
+      setRepoUrl((cur) => cur || saved.repoUrl);
+      setRepo((cur) => cur || saved.repo);
+    }
+  }
+
+  // Pre-fill last repo URL on connect screen
+  const [suggestedRepo, setSuggestedRepo] = useState("");
+  useEffect(() => {
+    if (!repo) {
+      const last = getLastRepoUrl();
+      if (last) setSuggestedRepo(last);
+    }
+  }, [repo]);
+
   /* Detect if user scrolled up from bottom */
   useEffect(() => {
     const el = chatContainerRef.current;
@@ -248,6 +297,7 @@ function Home() {
     onSuccess: (data) => {
       setRepo(data);
       setShowRepoInfo(false);
+      saveSession(token, repoUrl, data);
     },
   });
 
@@ -416,6 +466,7 @@ function Home() {
 
   const disconnect = () => {
     if (abortRef.current) abortRef.current.abort();
+    clearSession();
     setRepo(null);
     setTurns([]);
   };
@@ -474,6 +525,19 @@ function Home() {
                 className="w-full bg-transparent font-mono text-sm outline-none placeholder:text-muted-foreground/60"
               />
             </div>
+
+            {/* Last repo suggestion */}
+            {suggestedRepo && !repoUrl && (
+              <button
+                type="button"
+                onClick={() => setRepoUrl(suggestedRepo)}
+                className="flex w-full items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-xs font-mono text-primary transition-colors hover:bg-primary/10 hover:border-primary/40"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{suggestedRepo}</span>
+                <span className="ml-auto shrink-0 text-primary/60">usar</span>
+              </button>
+            )}
 
             <button
               onClick={() => connectMutation.mutate()}
@@ -603,7 +667,7 @@ function Home() {
       {/* ── Chat ── */}
       <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col px-4 py-4 sm:px-6 sm:py-6">
         <div
-          className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card"
+          className="flex min-h-0 flex-1 flex-col rounded-2xl border border-border bg-card"
           style={{ boxShadow: "var(--shadow-panel)" }}
         >
           <div
@@ -666,21 +730,21 @@ function Home() {
                 <div
                   className={`max-w-[82%] sm:max-w-[78%] ${
                     t.role === "user"
-                      ? "rounded-2xl rounded-tr-md border border-primary/20 bg-primary/10 px-3.5 py-2.5 sm:px-4 sm:py-3"
+                      ? "rounded-2xl rounded-tr-sm border-0 bg-primary text-primary-foreground shadow-md shadow-primary/15 px-3.5 py-2.5 sm:px-4 sm:py-3"
                       : t.error
-                        ? "rounded-2xl rounded-tl-md border border-destructive/20 bg-destructive/8 px-3.5 py-2.5 sm:px-4 sm:py-3"
-                        : "rounded-2xl rounded-tl-md border border-border bg-card px-3.5 py-2.5 sm:px-4 sm:py-3"
+                        ? "rounded-2xl rounded-tl-sm border border-destructive/25 bg-destructive/8 px-3.5 py-2.5 sm:px-4 sm:py-3"
+                        : "rounded-2xl rounded-tl-sm border border-border bg-secondary/50 px-3.5 py-2.5 sm:px-4 sm:py-3"
                   }`}
                 >
                   <p
                     className={`mb-1.5 text-[10px] font-semibold uppercase tracking-wider sm:text-[11px] ${
-                      t.role === "user" ? "text-primary" : "text-muted-foreground"
+                      t.role === "user" ? "text-primary-foreground/70" : "text-muted-foreground"
                     }`}
                   >
                     {t.role === "user" ? "Você" : "Agente"}
                   </p>
                   <div
-                    className={`prose prose-sm max-w-none text-sm leading-relaxed ${t.error ? "text-destructive" : ""}`}
+                    className={`prose prose-sm max-w-none text-sm leading-relaxed ${t.error ? "text-destructive" : ""} ${t.role === "user" ? "prose-invert" : ""}`}
                   >
                     <ReactMarkdown>{t.content}</ReactMarkdown>
                   </div>
