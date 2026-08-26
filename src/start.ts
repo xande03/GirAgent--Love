@@ -20,10 +20,19 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
 /* Streaming agent endpoint — bypasses server function pipeline for SSE */
 const streamMiddleware = createMiddleware().server(async ({ request, next }) => {
   const url = new URL(request.url);
+
+  // Streaming agent
   if (url.pathname === "/api/agent-stream" && request.method === "POST") {
     const { handleAgentStream } = await import("./lib/agent-stream");
     return handleAgentStream(request);
   }
+
+  // Download repo as ZIP
+  if (url.pathname === "/api/download-repo" && request.method === "POST") {
+    const { handleDownloadRepo } = await import("./lib/download-repo");
+    return handleDownloadRepo(request);
+  }
+
   return next();
 });
 

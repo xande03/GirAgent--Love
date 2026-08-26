@@ -139,14 +139,33 @@ Analise-as detalhadamente como REFERÊNCIA VISUAL para entender o que o usuário
         }
 
         // Parse the complete response
-        const parsed = extractJson<{
-          reasoning?: string;
-          summary?: string;
-          commitMessage?: string;
-          needsClarification?: boolean;
-          question?: string;
-          changes?: { path: string; action?: "upsert" | "delete"; content?: string }[];
-        }>(fullText);
+        let parsed;
+        try {
+          parsed = extractJson<{
+            reasoning?: string;
+            summary?: string;
+            commitMessage?: string;
+            needsClarification?: boolean;
+            question?: string;
+            changes?: { path: string; action?: "upsert" | "delete"; content?: string }[];
+          }>(fullText);
+        } catch (jsonErr) {
+          // If JSON parsing fails, send the raw text as a summary with a note
+          send(
+            "result",
+            JSON.stringify({
+              applied: false,
+              reasoning: "",
+              summary: fullText.slice(0, 3000) || "O modelo gerou uma resposta que não pôde ser processada. Tente novamente.",
+              imageIntent: intent,
+              commit: null,
+              changedPaths: [],
+              sanitized: flagged,
+            }),
+          );
+          send("phase", JSON.stringify({ phase: "done" }));
+          return;
+        }
 
         if (!parsed.changes?.length) {
           send(

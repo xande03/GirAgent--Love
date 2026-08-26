@@ -214,10 +214,152 @@ export async function* chatStream(
 
 /** Extracts the first JSON object from a model answer (handles ```json fences). */
 export function extractJson<T>(text: string): T {
+  // Strategy 1: Try fenced JSON blocks
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidate = fenced ? fenced[1]! : text;
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("O modelo não retornou JSON válido.");
-  return JSON.parse(candidate.slice(start, end + 1)) as T;
+  if (fenced) {
+    const result = tryParseJson(fenced[1]!.trim());
+    if (result !== undefined) return result as T;
+  }
+
+  // Strategy 2: Try the full text
+  const fullResult = tryParseJson(text.trim());
+  if (fullResult !== undefined) return fullResult as T;
+
+  // Strategy 3: Extract by brace matching (handles nested objects correctly)
+  const extracted = extractByBraceMatching(text);
+  if (extracted) {
+    const result = tryParseJson(extracted);
+    if (result !== undefined) return result as T;
+  }
+
+  // Strategy 4: Try to fix common issues and re-parse
+  const fixed = tryFixAndParse(text);
+  if (fixed !== undefined) return fixed as T;
+
+  throw new Error("O modelo não retornou JSON válido.");
+}
+
+/** Attempts JSON.parse and returns the result, or undefined on failure. */
+function tryParseJson(str: string): unknown {
+  try {
+    return JSON.parse(str);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Extracts a top-level JSON object by counting brace depth, properly handling strings and escapes. */
+function extractByBraceMatching(text: string): string | null {
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let stringChar = '';
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (escaped) { escaped = false; continue; }
+    if (ch === '\\') { escaped = true; continue; }
+    if (inString) {
+      if (ch === stringChar) inString = false;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Repairs potentially broken JSON from LLM output and parses it.
+ * Handles: unterminated strings, unbalanced braces, trailing commas, and
+ * content that got truncated mid-stream.
+ */
+function tryFixAndParse(text: string): unknown {
+  const candidate = text.trim();
+  const start = candidate.indexOf('{');
+  if (start === -1) return undefined;
+
+  let jsonStr = candidate.slice(start);
+  
+  // Walk the JSON tracking state, repairing as we go
+  let depth = 0;       // brace depth
+  let arrDepth = 0;    // bracket depth
+  let inStr = false;
+  let strCh = '';
+  let esc = false;
+  let lastGoodIndex = -1;
+
+  for (let i = 0; i < jsonStr.length; i++) {
+    const ch = jsonStr[i]!;
+    
+    if (esc) { esc = false; continue; }
+    if (ch === '\\') { esc = true; continue; }
+    
+    if (inStr) {
+      if (ch === strCh) inStr = false;
+      continue;
+    }
+    
+    if (ch === '"' || ch === "'") {
+      inStr = true;
+      strCh = ch;
+      continue;
+    }
+    
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0 && arrDepth === 0) { lastGoodIndex = i; break; }
+    }
+    else if (ch === '[') arrDepth++;
+    else if (ch === ']') {
+      arrDepth--;
+    }
+  }
+
+  if (lastGoodIndex !== -1) {
+    // Found a balanced top-level object — use it
+    jsonStr = jsonStr.slice(0, lastGoodIndex + 1);
+  } else {
+    // Unbalanced — repair by closing whatever is open
+    // First, close any unterminated string
+    if (inStr) {
+      jsonStr += strCh; // close the string with the matching quote
+    }
+    // Close remaining arrays and objects
+    const closeBrackets = ']'.repeat(Math.max(0, arrDepth));
+    const closeBraces = '}'.repeat(Math.max(0, depth));
+    jsonStr += closeBrackets + closeBraces;
+  }
+
+  // Fix trailing commas before } or ]
+  jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
+
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    // Last resort: try removing content after the last complete key-value pair
+    // Find last "}," or "}" at depth 1 and truncate there
+    const lastComplete = jsonStr.lastIndexOf('},');
+    if (lastComplete > 0) {
+      const truncated = jsonStr.slice(0, lastComplete + 1) + '}';
+      // Fix trailing commas again after truncation
+      const fixed = truncated.replace(/,\s*([}\]])/g, '$1');
+      try { return JSON.parse(fixed); } catch { /* give up */ }
+    }
+    return undefined;
+  }
 }

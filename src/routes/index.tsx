@@ -21,6 +21,12 @@ import {
   Upload,
   User,
   Bot,
+  Download,
+  Eye,
+  ExternalLink,
+  Monitor,
+  Smartphone,
+  Globe,
 } from "lucide-react";
 
 import { connectRepo } from "@/lib/agent.functions";
@@ -209,6 +215,68 @@ const PHASE_LABELS: Record<StreamPhase, string> = {
   done: "",
 };
 
+/* ── Preview platforms ── */
+type PreviewPlatform = {
+  name: string;
+  icon: typeof Monitor;
+  url: (owner: string, repo: string) => string;
+  description: string;
+};
+
+const PREVIEW_PLATFORMS: PreviewPlatform[] = [
+  {
+    name: "StackBlitz",
+    icon: Monitor,
+    url: (o, r) => `https://stackblitz.com/github/${o}/${r}`,
+    description: "Preview completo com hot-reload",
+  },
+  {
+    name: "CodeSandbox",
+    icon: Globe,
+    url: (o, r) => `https://githubbox.com/${o}/${r}`,
+    description: "Sandbox no navegador",
+  },
+  {
+    name: "GitHub Codespaces",
+    icon: ExternalLink,
+    url: (o, r) => `https://codespaces.new/${o}/${r}`,
+    description: "Ambiente de desenvolvimento completo",
+  },
+  {
+    name: "Vercel",
+    icon: Globe,
+    url: (o, r) => `https://vercel.com/new/clone?repository-url=https://github.com/${o}/${r}`,
+    description: "Deploy instantâneo",
+  },
+];
+
+/* ── Download helper ── */
+async function downloadRepoZip(token: string, repoUrl: string, branch: string) {
+  try {
+    const res = await fetch("/api/download-repo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, repoUrl, branch }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Erro desconhecido" }));
+      alert(`Erro ao baixar: ${err.error}`);
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = res.headers.get("Content-Disposition")?.match(/filename="(.+?)"/)?.[1] ?? "projeto.zip";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert(`Erro ao baixar: ${(err as Error).message}`);
+  }
+}
+
 /* ── Session persistence keys ── */
 const SESSION_KEY = "xerife-session";
 const LAST_REPO_KEY = "xerife-last-repo";
@@ -251,6 +319,8 @@ function Home() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [showPreviewMenu, setShowPreviewMenu] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   // Streaming state
@@ -614,6 +684,78 @@ function Home() {
               />
             </button>
 
+            {/* Download ZIP button */}
+            <button
+              onClick={async () => {
+                setDownloading(true);
+                await downloadRepoZip(token, repoUrl, repo.branch);
+                setDownloading(false);
+              }}
+              disabled={downloading}
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:border-primary hover:text-primary hover:shadow-sm active:scale-95 disabled:opacity-40"
+              aria-label="Baixar projeto como ZIP"
+              title="Baixar repositório completo como ZIP"
+            >
+              {downloading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden sm:inline">Baixar</span>
+            </button>
+
+            {/* Preview dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setShowPreviewMenu((v) => !v)}
+                className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:border-primary hover:text-primary hover:shadow-sm active:scale-95"
+                aria-label="Preview do projeto"
+                title="Visualizar projeto em tempo real"
+              >
+                <Eye className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Preview</span>
+                <ChevronDown className={`h-3 w-3 transition-transform ${showPreviewMenu ? "rotate-180" : ""}`} />
+              </button>
+
+              {showPreviewMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowPreviewMenu(false)} />
+                  <div className="absolute right-0 top-full z-50 mt-1.5 w-64 rounded-xl border border-border bg-card p-1.5 shadow-xl backdrop-blur-md">
+                    <p className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Preview do projeto
+                    </p>
+                    {PREVIEW_PLATFORMS.map((platform) => {
+                      const Icon = platform.icon;
+                      return (
+                        <a
+                          key={platform.name}
+                          href={platform.url(repo.owner, repo.repo)}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          onClick={() => setShowPreviewMenu(false)}
+                          className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-accent/50"
+                        >
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <Icon className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-foreground">{platform.name}</div>
+                            <div className="text-[11px] text-muted-foreground">{platform.description}</div>
+                          </div>
+                        </a>
+                      );
+                    })}
+                    <div className="mt-1 border-t border-border pt-1.5 px-2.5">
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <Smartphone className="h-3 w-3" />
+                        <span>Funciona com landing pages, PWAs, apps, jogos e mais</span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
             <ThemeToggle />
 
             {/* Disconnect button */}
@@ -686,7 +828,7 @@ function Home() {
               </button>
             )}
             {turns.length === 0 && !isStreaming && (
-              <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground sm:p-6">
+              <div className="rounded-lg border border-dashed border-border p-4 text-[15px] text-muted-foreground sm:p-6">
                 <p className="mb-2 font-semibold text-foreground">Repositório conectado</p>
                 <p className="mb-3 text-xs">
                   <span className="font-mono text-primary">
@@ -744,7 +886,7 @@ function Home() {
                     {t.role === "user" ? "Você" : "Agente"}
                   </p>
                   <div
-                    className={`prose prose-sm max-w-none text-sm leading-relaxed ${t.error ? "text-destructive" : ""} ${t.role === "user" ? "prose-invert" : ""}`}
+                    className={`prose prose-sm max-w-none text-[15px] leading-relaxed ${t.error ? "text-destructive" : ""} ${t.role === "user" ? "prose-invert" : ""}`}
                   >
                     <ReactMarkdown>{t.content}</ReactMarkdown>
                   </div>
@@ -822,7 +964,7 @@ function Home() {
                   {/* Streaming text preview */}
                   {streamText && (
                     <div className="rounded-lg border border-border/50 bg-card/50 p-2.5">
-                      <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
+                      <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-muted-foreground">
                         {streamText}
                       </pre>
                     </div>
@@ -887,7 +1029,7 @@ function Home() {
                   }}
                   rows={1}
                   placeholder="Descreva o que alterar, adicionar ou corrigir..."
-                  className="block w-full min-h-[2rem] max-h-40 resize-none bg-transparent py-1 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/35"
+                  className="block w-full min-h-[2rem] max-h-40 resize-none bg-transparent py-1 text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground/35"
                   onInput={(e) => {
                     const el = e.currentTarget;
                     el.style.height = "auto";
