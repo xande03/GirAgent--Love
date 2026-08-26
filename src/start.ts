@@ -17,6 +17,16 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
   }
 });
 
+/* Streaming agent endpoint — bypasses server function pipeline for SSE */
+const streamMiddleware = createMiddleware().server(async ({ request, next }) => {
+  const url = new URL(request.url);
+  if (url.pathname === "/api/agent-stream" && request.method === "POST") {
+    const { handleAgentStream } = await import("./lib/agent-stream");
+    return handleAgentStream(request);
+  }
+  return next();
+});
+
 // Start installs this automatically when src/start.ts is absent; defining the
 // file opts out, so re-add it explicitly to keep server functions protected
 // from cross-site requests.
@@ -25,5 +35,5 @@ const csrfMiddleware = createCsrfMiddleware({
 });
 
 export const startInstance = createStart(() => ({
-  requestMiddleware: [errorMiddleware, csrfMiddleware],
+  requestMiddleware: [streamMiddleware, errorMiddleware, csrfMiddleware],
 }));

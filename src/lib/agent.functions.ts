@@ -27,9 +27,26 @@ const RunSchema = z.object({
 export const connectRepo = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => ConnectSchema.parse(input))
   .handler(async ({ data }) => {
-    const { parseRepoUrl, getRepoSnapshot } = await import("./github.server");
+    const { parseRepoUrl, getRepoSnapshot, setSnapshotCache, getCachedSnapshot } = await import("./github.server");
     const ref = parseRepoUrl(data.repoUrl);
+
+    // Try cache first
+    const cached = getCachedSnapshot(ref.owner, ref.repo);
+    if (cached) {
+      return {
+        owner: cached.owner,
+        repo: cached.repo,
+        branch: cached.branch,
+        headSha: cached.headSha,
+        totalFiles: cached.paths.length,
+        indexedFiles: cached.files.length,
+        truncated: cached.truncated,
+        paths: cached.paths.slice(0, 800),
+      };
+    }
+
     const snap = await getRepoSnapshot(data.token, ref);
+    setSnapshotCache(snap);
     return {
       owner: snap.owner,
       repo: snap.repo,
@@ -45,15 +62,31 @@ export const connectRepo = createServerFn({ method: "POST" })
 export const runAgent = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => RunSchema.parse(input))
   .handler(async ({ data }) => {
-    const { parseRepoUrl, getRepoSnapshot, commitToMain } = await import("./github.server");
+    const {
+      parseRepoUrl,
+      getRepoSnapshot,
+      commitToMain,
+      getCachedSnapshot,
+      setSnapshotCache,
+      invalidateSnapshotCache,
+    } = await import("./github.server");
     const { chat, extractJson } = await import("./ai.server");
-    const { classifyImageIntent, buildSystemPrompt, assetPath } = await import("./agent-core");
+    const { classifyImageIntent, buildSystemPrompt, assetPath, sanitizeInstruction, validateChanges } = await import("./agent-core");
+
+    // Sanitize instruction
+    const { clean: instruction, flagged } = sanitizeInstruction(data.instruction);
 
     const ref = parseRepoUrl(data.repoUrl);
-    const snap = await getRepoSnapshot(data.token, ref);
+
+    // Try snapshot cache, fallback to fetch
+    let snap = getCachedSnapshot(ref.owner, ref.repo);
+    if (!snap) {
+      snap = await getRepoSnapshot(data.token, ref);
+      setSnapshotCache(snap);
+    }
 
     const images = data.attachments.filter((a) => a.mime.startsWith("image/"));
-    const intent = classifyImageIntent(data.instruction);
+    const intent = classifyImageIntent(instruction);
 
     const repoContext = [
       `Repositório: ${snap.owner}/${snap.repo} (branch de trabalho: main)`,
@@ -103,7 +136,7 @@ export const runAgent = createServerFn({ method: "POST" })
               data.history.map((h) => `${h.role === "user" ? "Usuário" : "Agente"}: ${h.content}`).join("\n")
             : "",
           "",
-          `SOLICITAÇÃO DO USUÁRIO:\n${data.instruction}`,
+          `SOLICITAÇÃO DO USUÁRIO:\n${instruction}`,
         ]
           .filter(Boolean)
           .join("\n"),
@@ -136,12 +169,16 @@ export const runAgent = createServerFn({ method: "POST" })
         imageIntent: intent,
         commit: null,
         changedPaths: [] as string[],
+        sanitized: flagged,
       };
     }
 
+    // Validate changes for security
+    validateChanges(parsed.changes);
+
     const changes = parsed.changes.map((c) =>
       c.action === "delete"
-        ? ({ path: c.path, action: "delete" } as const)
+        ? ({ path: c.path, action: "delete" as const })
         : ({ path: c.path, action: "upsert" as const, content: c.content ?? "" }),
     );
 
@@ -156,11 +193,14 @@ export const runAgent = createServerFn({ method: "POST" })
       }
     }
 
+    // Invalidate snapshot cache before committing (HEAD will change)
+    invalidateSnapshotCache(ref.owner, ref.repo);
+
     const commit = await commitToMain(
       data.token,
       ref,
       changes as never,
-      parsed.commitMessage?.slice(0, 200) || `agente: ${data.instruction.slice(0, 60)}`,
+      parsed.commitMessage?.slice(0, 200) || `agente: ${instruction.slice(0, 60)}`,
       snap.branch,
     );
 
@@ -171,5 +211,6 @@ export const runAgent = createServerFn({ method: "POST" })
       imageIntent: intent,
       commit,
       changedPaths: changes.map((c) => c.path),
+      sanitized: flagged,
     };
   });

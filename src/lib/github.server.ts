@@ -1,5 +1,24 @@
 const API = "https://api.github.com";
 
+/* ── Snapshot cache (TTL-based, in-process) ── */
+const _snapCache = new Map<string, { data: RepoSnapshot; ts: number }>();
+const SNAP_CACHE_TTL_MS = 60_000; // 1 minute
+
+export function getCachedSnapshot(owner: string, repo: string): RepoSnapshot | null {
+  const entry = _snapCache.get(`${owner}/${repo}`);
+  if (entry && Date.now() - entry.ts < SNAP_CACHE_TTL_MS) return entry.data;
+  if (entry) _snapCache.delete(`${owner}/${repo}`);
+  return null;
+}
+
+export function setSnapshotCache(snap: RepoSnapshot): void {
+  _snapCache.set(`${snap.owner}/${snap.repo}`, { data: snap, ts: Date.now() });
+}
+
+export function invalidateSnapshotCache(owner: string, repo: string): void {
+  _snapCache.delete(`${owner}/${repo}`);
+}
+
 export type RepoRef = { owner: string; repo: string };
 
 export type RepoFile = { path: string; content: string };

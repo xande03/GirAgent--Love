@@ -10,7 +10,6 @@ import {
   Paperclip,
   Send,
   Sparkles,
-  FileCode2,
   CheckCircle2,
   AlertTriangle,
   ArrowDown,
@@ -18,9 +17,11 @@ import {
   ChevronDown,
   KeyRound,
   Link2,
+  BrainCircuit,
+  Upload,
 } from "lucide-react";
 
-import { connectRepo, runAgent } from "@/lib/agent.functions";
+import { connectRepo } from "@/lib/agent.functions";
 
 import { ComposerAttachments, MessageAttachments } from "@/components/attachment-preview";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
@@ -62,9 +63,27 @@ type Turn = {
 
 type RepoState = Awaited<ReturnType<typeof connectRepo>>;
 
+type StreamPhase = "snapshot" | "thinking" | "committing" | "done";
+
+type AgentResult = {
+  applied: boolean;
+  reasoning: string;
+  summary: string;
+  imageIntent: "add-to-project" | "reference-only";
+  commit: { sha: string; url: string; branch: string } | null;
+  changedPaths: string[];
+  sanitized: boolean;
+};
+
+const PHASE_LABELS: Record<StreamPhase, string> = {
+  snapshot: "Lendo repositório...",
+  thinking: "Analisando e gerando mudanças...",
+  committing: "Aplicando e comitando...",
+  done: "",
+};
+
 function Home() {
   const connect = useServerFn(connectRepo);
-  const run = useServerFn(runAgent);
 
   const [token, setToken] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
@@ -78,7 +97,12 @@ function Home() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
+  // Streaming state
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamPhase, setStreamPhase] = useState<StreamPhase>("done");
+  const [streamText, setStreamText] = useState("");
 
   /* Detect if user scrolled up from bottom */
   useEffect(() => {
@@ -100,43 +124,10 @@ function Home() {
     },
   });
 
-  const runMutation = useMutation({
-    mutationFn: async (prompt: string) => {
-      const history = turns.slice(-6).map((t) => ({ role: t.role, content: t.content }));
-      const lastUserTurn = [...turns].reverse().find((t) => t.role === "user");
-      const pendingAttachments = lastUserTurn?.attachments ?? [];
-      return run({
-        data: {
-          token,
-          repoUrl,
-          instruction: prompt,
-          attachments: pendingAttachments.map(({ name, mime, dataUrl }) => ({ name, mime, dataUrl })),
-          history,
-        },
-      });
-    },
-    onSuccess: (res) => {
-      setTurns((t) => [
-        ...t,
-        {
-          role: "assistant",
-          content: res.summary,
-          reasoning: res.reasoning,
-          changedPaths: res.changedPaths,
-          commitUrl: res.commit?.url,
-          imageIntent: res.imageIntent,
-        },
-      ]);
-    },
-    onError: (err: Error) => {
-      setTurns((t) => [...t, { role: "assistant", content: err.message, error: true }]);
-    },
-  });
-
-  /* Auto-scroll to bottom when new messages arrive */
+  /* Auto-scroll to bottom when new messages arrive or streaming text changes */
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [turns.length, runMutation.isPending]);
+  }, [turns.length, streamText.length > 0 ? streamText.slice(-1) : null]);
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const list = Array.from(files).slice(0, 6);
@@ -166,7 +157,7 @@ function Home() {
       if (!items) return;
       const files: File[] = [];
       for (let i = 0; i < items.length; i++) {
-        const item = items[i];
+        const item = items[i]!;
         if (item.kind === "file") {
           const f = item.getAsFile();
           if (f) files.push(f);
@@ -180,18 +171,133 @@ function Home() {
     [addFiles],
   );
 
+  const submitStream = useCallback(
+    async (prompt: string) => {
+      if (isStreaming) return;
+      const currentAttachments = attachments;
+
+      // Add user turn immediately
+      setTurns((t) => [...t, { role: "user", content: prompt, attachments: currentAttachments }]);
+      setInstruction("");
+      setAttachments([]);
+      if (fileInput.current) fileInput.current.value = "";
+
+      // Start streaming
+      setIsStreaming(true);
+      setStreamPhase("snapshot");
+      setStreamText("");
+
+      const abort = new AbortController();
+      abortRef.current = abort;
+
+      const history = turns.slice(-6).map((t) => ({ role: t.role, content: t.content }));
+
+      try {
+        const res = await fetch("/api/agent-stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token,
+            repoUrl,
+            instruction: prompt,
+            attachments: currentAttachments.map(({ name, mime, dataUrl }) => ({ name, mime, dataUrl })),
+            history,
+          }),
+          signal: abort.signal,
+        });
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "Erro desconhecido");
+          setTurns((t) => [...t, { role: "assistant", content: `Erro HTTP ${res.status}: ${errText}`, error: true }]);
+          return;
+        }
+
+        const reader = res.body?.getReader();
+        if (!reader) {
+          setTurns((t) => [...t, { role: "assistant", content: "Resposta sem corpo para streaming.", error: true }]);
+          return;
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let resultData: AgentResult | null = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const events = buffer.split("\n\n");
+          buffer = events.pop() ?? "";
+
+          for (const event of events) {
+            const lines = event.split("\n");
+            let eventType = "";
+            let eventData = "";
+            for (const line of lines) {
+              if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+              if (line.startsWith("data: ")) eventData = line.slice(6);
+            }
+
+            if (eventType === "phase") {
+              try {
+                const { phase } = JSON.parse(eventData);
+                setStreamPhase(phase as StreamPhase);
+              } catch {}
+            } else if (eventType === "chunk") {
+              try {
+                const { text } = JSON.parse(eventData);
+                setStreamText((prev) => prev + text);
+              } catch {}
+            } else if (eventType === "result") {
+              try {
+                resultData = JSON.parse(eventData) as AgentResult;
+              } catch {}
+            } else if (eventType === "error") {
+              try {
+                const { message } = JSON.parse(eventData);
+                setTurns((t) => [...t, { role: "assistant", content: message, error: true }]);
+              } catch {}
+            }
+          }
+        }
+
+        // Add the final result as a turn
+        if (resultData) {
+          setTurns((t) => [
+            ...t,
+            {
+              role: "assistant",
+              content: resultData.summary,
+              reasoning: resultData.reasoning,
+              changedPaths: resultData.changedPaths,
+              commitUrl: resultData.commit?.url,
+              imageIntent: resultData.imageIntent,
+            },
+          ]);
+        }
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") {
+          setTurns((t) => [...t, { role: "assistant", content: (err as Error).message, error: true }]);
+        }
+      } finally {
+        setIsStreaming(false);
+        setStreamPhase("done");
+        setStreamText("");
+        abortRef.current = null;
+      }
+    },
+    [isStreaming, attachments, token, repoUrl, turns],
+  );
+
   const submit = () => {
     const prompt = instruction.trim();
-    if (!prompt || runMutation.isPending) return;
-    const currentAttachments = attachments;
-    setTurns((t) => [...t, { role: "user", content: prompt, attachments: currentAttachments }]);
-    setInstruction("");
-    setAttachments([]);
-    if (fileInput.current) fileInput.current.value = "";
-    runMutation.mutate(prompt);
+    if (!prompt || isStreaming) return;
+    void submitStream(prompt);
   };
 
   const disconnect = () => {
+    if (abortRef.current) abortRef.current.abort();
     setRepo(null);
     setTurns([]);
   };
@@ -224,9 +330,7 @@ function Home() {
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-border/50 bg-card/60 backdrop-blur-md">
               <Github className="h-5.5 w-5.5 text-primary" />
             </span>
-            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
-              XerifeSwitch Agent
-            </h1>
+            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">XerifeSwitch Agent</h1>
           </div>
 
           <div
@@ -282,22 +386,22 @@ function Home() {
      ═══════════════════════════════════════════ */
   return (
     <main className="flex min-h-dvh flex-col bg-background font-sans text-foreground">
-        {/* Background image */}
-        <div
-          className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
-          style={{ backgroundImage: "url(/robot-bg.png)" }}
-          aria-hidden
-        />
-        {/* Frosted glass overlay */}
-        <div
-          className="pointer-events-none fixed inset-0 z-0"
-          style={{
-            backgroundColor: "var(--bg-frost)",
-            backdropFilter: "blur(28px) saturate(150%)",
-            WebkitBackdropFilter: "blur(28px) saturate(150%)",
-          }}
-          aria-hidden
-        />
+      {/* Background image */}
+      <div
+        className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
+        style={{ backgroundImage: "url(/robot-bg.png)" }}
+        aria-hidden
+      />
+      {/* Frosted glass overlay */}
+      <div
+        className="pointer-events-none fixed inset-0 z-0"
+        style={{
+          backgroundColor: "var(--bg-frost)",
+          backdropFilter: "blur(28px) saturate(150%)",
+          WebkitBackdropFilter: "blur(28px) saturate(150%)",
+        }}
+        aria-hidden
+      />
 
       {/* ── Header ── */}
       <header className="relative z-10 border-b border-border bg-background/80 backdrop-blur-md">
@@ -320,8 +424,12 @@ function Home() {
               className="hidden items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 font-mono text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary sm:flex"
             >
               <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
-              <span>{repo.owner}/{repo.repo}</span>
-              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showRepoInfo ? "rotate-180" : ""}`} />
+              <span>
+                {repo.owner}/{repo.repo}
+              </span>
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${showRepoInfo ? "rotate-180" : ""}`}
+              />
             </button>
 
             {/* Disconnect button (mobile: icon only) */}
@@ -343,10 +451,18 @@ function Home() {
           <div className="border-t border-border bg-card/90 backdrop-blur-sm">
             <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6">
               <div className="flex flex-wrap gap-x-6 gap-y-1 font-mono text-xs text-muted-foreground">
-                <div>branch: <span className="text-foreground">{repo.branch}</span></div>
-                <div>arquivos: <span className="text-foreground">{repo.totalFiles}</span></div>
-                <div>indexados: <span className="text-foreground">{repo.indexedFiles}</span></div>
-                <div>head: <span className="text-foreground">{repo.headSha.slice(0, 7)}</span></div>
+                <div>
+                  branch: <span className="text-foreground">{repo.branch}</span>
+                </div>
+                <div>
+                  arquivos: <span className="text-foreground">{repo.totalFiles}</span>
+                </div>
+                <div>
+                  indexados: <span className="text-foreground">{repo.indexedFiles}</span>
+                </div>
+                <div>
+                  head: <span className="text-foreground">{repo.headSha.slice(0, 7)}</span>
+                </div>
               </div>
               <details className="mt-2">
                 <summary className="cursor-pointer font-mono text-[11px] uppercase text-muted-foreground hover:text-foreground">
@@ -386,18 +502,21 @@ function Home() {
                 Nova mensagem
               </button>
             )}
-            {turns.length === 0 && (
+            {turns.length === 0 && !isStreaming && (
               <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground sm:p-6">
                 <p className="mb-2 font-semibold text-foreground">Repositório conectado</p>
                 <p className="mb-3 text-xs">
-                  <span className="font-mono text-primary">{repo.owner}/{repo.repo}</span> — {repo.indexedFiles} arquivos indexados
+                  <span className="font-mono text-primary">
+                    {repo.owner}/{repo.repo}
+                  </span>{" "}
+                  — {repo.indexedFiles} arquivos indexados
                 </p>
                 <p className="mb-2 font-semibold text-foreground">Como usar</p>
                 <ol className="list-inside list-decimal space-y-1 font-mono text-xs">
                   <li>Descreva o que alterar, adicionar ou corrigir.</li>
                   <li>O agente entende a estrutura e garante consistência entre arquivos.</li>
                   <li>Alterações são commitadas direto na main automaticamente.</li>
-                  <li>Anexe imagens se precisar (arraste ou clique no clipe).</li>
+                  <li>Anexe imagens se precisar (arraste, clique no clipe ou Ctrl+V).</li>
                 </ol>
               </div>
             )}
@@ -456,7 +575,7 @@ function Home() {
                   <a
                     href={t.commitUrl}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noreferrer noopener"
                     className="mt-3 inline-flex items-center gap-2 rounded-md border border-primary px-3 py-1.5 font-mono text-[11px] text-primary hover:bg-primary/10"
                   >
                     <GitBranch className="h-3 w-3" /> commit enviado para main
@@ -465,11 +584,37 @@ function Home() {
               </article>
             ))}
 
-            {runMutation.isPending && (
-              <p className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" /> analisando estrutura,
-                aplicando mudanças e comitando...
-              </p>
+            {/* ── Streaming progress indicator ── */}
+            {isStreaming && (
+              <article className="max-w-[92%] rounded-lg border border-primary/30 bg-primary/5 p-3 sm:p-4">
+                <p className="mb-2 font-mono text-[10px] uppercase tracking-wide text-primary sm:text-[11px]">
+                  agente
+                </p>
+                {/* Phase indicator */}
+                <div className="flex items-center gap-2 mb-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  <span className="text-xs font-medium text-primary">
+                    {PHASE_LABELS[streamPhase]}
+                  </span>
+                  {streamPhase === "thinking" && (
+                    <BrainCircuit className="h-3.5 w-3.5 text-primary/60" />
+                  )}
+                  {streamPhase === "committing" && (
+                    <Upload className="h-3.5 w-3.5 text-primary/60" />
+                  )}
+                  {streamPhase === "snapshot" && (
+                    <Github className="h-3.5 w-3.5 text-primary/60" />
+                  )}
+                </div>
+                {/* Streaming text preview */}
+                {streamText && (
+                  <div className="rounded-md border border-border/50 bg-card/50 p-2.5">
+                    <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
+                      {streamText}
+                    </pre>
+                  </div>
+                )}
+              </article>
             )}
 
             {/* Anchor for auto-scroll */}
@@ -540,10 +685,10 @@ function Home() {
 
               <button
                 onClick={submit}
-                disabled={runMutation.isPending || !instruction.trim()}
+                disabled={isStreaming || !instruction.trim()}
                 className="mb-px flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-md shadow-primary/25 transition-all hover:shadow-lg hover:shadow-primary/35 hover:brightness-110 active:scale-90 disabled:opacity-20 disabled:shadow-none disabled:brightness-100"
               >
-                {runMutation.isPending ? (
+                {isStreaming ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <Send className="h-3.5 w-3.5" />

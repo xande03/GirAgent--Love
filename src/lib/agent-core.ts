@@ -21,13 +21,83 @@ export function classifyImageIntent(instruction: string): ImageIntent {
   const wantsAdd = ADD_PATTERNS.some((r) => r.test(instruction));
   const isReference = REFERENCE_PATTERNS.some((r) => r.test(instruction));
   if (wantsAdd && !isReference) return "add-to-project";
-  if (wantsAdd && isReference) return "add-to-project";
+  if (wantsAdd && isReference) return "reference-only";
   return "reference-only";
 }
 
 export function assetPath(fileName: string) {
   const safe = fileName.replace(/[^\w.-]+/g, "-").toLowerCase();
   return `public/uploads/${safe}`;
+}
+
+/* ── Prompt injection detection & sanitization ── */
+
+const INJECTION_PATTERNS = [
+  /ignore\s+(all\s+)?(previous|above|prior)\s+(instructions?|prompts?|rules?)/i,
+  /you\s+are\s+(now|no\s+longer)\s+/i,
+  /system\s*:\s*"?/i,
+  /\{[\s\S]*?"role"\s*:\s*"system"/i,
+  /forget\s+(everything|all|your)\s+(instructions?|rules?|prompt|training)/i,
+  /new\s+(instructions?|rules?|prompt)\s*:/i,
+  /override\s+(the\s+)?(system|previous|above|current)/i,
+  /pretend\s+(you\s+are|to\s+be)/i,
+  /act\s+as\s+(if\s+you\s+(are|were)|a\s+different)/i,
+  /disregard\s+(your|the|all)\s+(instructions?|rules?|training)/i,
+  /jailbreak/i,
+  /\bDAN\b.*\bmode\b/i,
+  / Role:.*[\r\n]/i,
+];
+
+/**
+ * Sanitizes user instruction to mitigate prompt injection attacks.
+ * Returns the cleaned instruction and whether anything was flagged.
+ */
+export function sanitizeInstruction(input: string): { clean: string; flagged: boolean } {
+  let flagged = false;
+  let clean = input;
+
+  for (const pattern of INJECTION_PATTERNS) {
+    if (pattern.test(clean)) {
+      flagged = true;
+      clean = clean.replace(pattern, "[bloqueado: tentativa de injeção removida]");
+    }
+  }
+
+  // Limit instruction length to prevent context overflow
+  if (clean.length > 10_000) {
+    clean = clean.slice(0, 10_000) + "\n\n[instrução truncada: limite de 10.000 caracteres]";
+    flagged = true;
+  }
+
+  return { clean, flagged };
+}
+
+/**
+ * Validates LLM output changes to prevent malicious or destructive modifications.
+ * Throws if any change is suspicious.
+ */
+export function validateChanges(
+  changes: { path: string; action?: string; content?: string }[],
+): void {
+  const DANGEROUS_PATHS = [/^\.git\//, /^\.env(\.|$)/, /^\.ssh\//, /^id_rsa/, /^id_ed25519/];
+  for (const change of changes) {
+    // Block path traversal
+    if (change.path.startsWith("/") || change.path.includes("..")) {
+      throw new Error(`Caminho de arquivo bloqueado por segurança: ${change.path}`);
+    }
+    // Block sensitive files
+    for (const dp of DANGEROUS_PATHS) {
+      if (dp.test(change.path)) {
+        throw new Error(`Arquivo sensível bloqueado: ${change.path}`);
+      }
+    }
+    // Block excessively large content (>500KB per file)
+    if (change.content && change.content.length > 500_000) {
+      throw new Error(
+        `Conteúdo bloqueado por tamanho excessivo: ${change.path} (${(change.content.length / 1024).toFixed(0)}KB)`
+      );
+    }
+  }
 }
 
 export function buildSystemPrompt() {
