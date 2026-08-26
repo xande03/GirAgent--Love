@@ -64,12 +64,41 @@ export function parseRepoUrl(input: string): RepoRef {
 }
 
 
+function gitHubMessage(status: number, path: string, body: string): string {
+  let providerMessage = body.slice(0, 500);
+  try {
+    const parsed = JSON.parse(body) as { message?: unknown };
+    if (typeof parsed.message === "string") providerMessage = parsed.message;
+  } catch {
+    // Keep the raw provider body when it is not JSON.
+  }
+
+  if (status === 401) {
+    return "Token do GitHub inválido ou expirado. Gere um novo token com acesso ao repositório e tente novamente.";
+  }
+
+  if (status === 403) {
+    return "O GitHub recusou o acesso. Confirme se o token tem permissão para ler e escrever no repositório e se o limite de uso da API não foi atingido.";
+  }
+
+  if (status === 404 && /^\/repos\/[^/]+\/[^/]+$/.test(path)) {
+    return "Repositório não encontrado ou inacessível para este token. Confirme a URL no formato https://github.com/usuario/repositorio e, se for privado, use um token com acesso ao repositório.";
+  }
+
+  if (status === 404 && path.includes("/branches/")) {
+    return "Branch padrão não encontrada no repositório. Confirme se o repositório tem uma branch principal válida.";
+  }
+
+  return `GitHub API ${status}: ${providerMessage}`;
+}
+
 async function gh(token: string, path: string, init?: RequestInit) {
+  const cleanToken = token.trim();
   const res = await fetch(`${API}${path}`, {
     ...init,
     headers: {
       Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${cleanToken}`,
       "User-Agent": "xerife-switch-agent",
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
@@ -77,7 +106,7 @@ async function gh(token: string, path: string, init?: RequestInit) {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`GitHub API ${res.status}: ${body.slice(0, 500)}`);
+    throw new Error(gitHubMessage(res.status, path, body));
   }
   return res.json() as Promise<any>;
 }
