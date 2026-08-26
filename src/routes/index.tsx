@@ -520,7 +520,7 @@ function Home() {
       />
 
       {/* ── Header ── */}
-      <header className="sticky top-0 z-20 shrink-0 border-b border-border bg-background/80 backdrop-blur-md">
+      <header className="sticky top-0 z-30 shrink-0 border-b border-border bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/70">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card sm:h-10 sm:w-10">
@@ -605,7 +605,7 @@ function Home() {
         >
           <div
             ref={chatContainerRef}
-            className="relative flex-1 space-y-4 overflow-auto p-4 sm:space-y-5 sm:p-5"
+            className="relative min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden overscroll-contain p-4 [-webkit-overflow-scrolling:touch] sm:space-y-5 sm:p-5"
           >
             {/* Scroll-to-bottom FAB */}
             {showScrollBtn && (
