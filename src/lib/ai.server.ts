@@ -212,29 +212,40 @@ export async function* chatStream(
   }
 }
 
-/** Extracts the first JSON object from a model answer (handles ```json fences). */
+/** Extracts the first JSON object from a model answer (handles ```json fences, malformed output, unescaped quotes in code, etc.). */
 export function extractJson<T>(text: string): T {
-  // Strategy 1: Try fenced JSON blocks
+  // Strategy 1: Try fenced JSON blocks directly
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenced) {
-    const result = tryParseJson(fenced[1]!.trim());
+    const trimmed = fenced[1]!.trim();
+    let result = tryParseJson(trimmed);
+    if (result !== undefined) return result as T;
+    // Fenced block exists but invalid — try repairing it
+    result = tryRepairAndParse(trimmed);
     if (result !== undefined) return result as T;
   }
 
-  // Strategy 2: Try the full text
-  const fullResult = tryParseJson(text.trim());
+  // Strategy 2: Try the full text directly
+  let fullResult = tryParseJson(text.trim());
   if (fullResult !== undefined) return fullResult as T;
 
-  // Strategy 3: Extract by brace matching (handles nested objects correctly)
+  // Strategy 3: Extract by brace matching (handles surrounding text)
   const extracted = extractByBraceMatching(text);
   if (extracted) {
-    const result = tryParseJson(extracted);
+    let result = tryParseJson(extracted);
+    if (result !== undefined) return result as T;
+    // Extracted but invalid — try repairing
+    result = tryRepairAndParse(extracted);
     if (result !== undefined) return result as T;
   }
 
-  // Strategy 4: Try to fix common issues and re-parse
-  const fixed = tryFixAndParse(text);
-  if (fixed !== undefined) return fixed as T;
+  // Strategy 4: Repair the full text (handles unescaped quotes in code content)
+  const repaired = tryRepairAndParse(text.trim());
+  if (repaired !== undefined) return repaired as T;
+
+  // Strategy 5: Last resort — close truncation and try
+  const closed = tryCloseAndParse(text);
+  if (closed !== undefined) return closed as T;
 
   throw new Error("O modelo não retornou JSON válido.");
 }
@@ -246,6 +257,84 @@ function tryParseJson(str: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Core repair strategy: fixes unescaped quotes inside JSON string values.
+ * Uses lookahead heuristic — a `"` inside a string is a delimiter only if
+ * followed by `,`, `}`, `]`, `:`, or end-of-string. Otherwise it's content.
+ */
+function tryRepairAndParse(jsonStr: string): unknown {
+  const start = jsonStr.indexOf('{');
+  if (start === -1) return undefined;
+  let src = jsonStr.slice(start);
+
+  // Walk and rebuild, fixing unescaped quotes inside strings
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i]!;
+
+    // Handle escape sequences — pass through verbatim
+    if (ch === '\\' && i + 1 < src.length) {
+      out += ch + src[i + 1]!;
+      i += 2;
+      continue;
+    }
+
+    // Start of a JSON string
+    if (ch === '"') {
+      out += ch;
+      i++;
+      // Read string content, fixing unescaped quotes
+      while (i < src.length) {
+        const c = src[i]!;
+
+        // Escape sequence inside string — pass through
+        if (c === '\\' && i + 1 < src.length) {
+          out += c + src[i + 1]!;
+          i += 2;
+          continue;
+        }
+
+        if (c === '"') {
+          // Lookahead: is this a real string terminator?
+          // A real terminator is followed by: , } ] : or whitespace+one_of_those
+          let j = i + 1;
+          while (j < src.length && src[j] === ' ') j++;
+          const nextChar = j < src.length ? src[j] : '';
+          if (nextChar === ',' || nextChar === '}' || nextChar === ']' || nextChar === ':' || j >= src.length) {
+            // Real string terminator
+            out += c;
+            i++;
+            break;
+          } else {
+            // Unescaped quote inside string content — escape it
+            out += '\\"';
+            i++;
+          }
+        } else {
+          out += c;
+          i++;
+        }
+      }
+      continue;
+    }
+
+    out += ch;
+    i++;
+  }
+
+  // Try parsing the repaired string
+  let result = tryParseJson(out);
+  if (result !== undefined) return result;
+
+  // Fix trailing commas and try again
+  const fixed = out.replace(/,\s*([}\]])/g, '$1');
+  result = tryParseJson(fixed);
+  if (result !== undefined) return result;
+
+  return undefined;
 }
 
 /** Extracts a top-level JSON object by counting brace depth, properly handling strings and escapes. */
@@ -282,21 +371,14 @@ function extractByBraceMatching(text: string): string | null {
   return null;
 }
 
-/**
- * Repairs potentially broken JSON from LLM output and parses it.
- * Handles: unterminated strings, unbalanced braces, trailing commas, and
- * content that got truncated mid-stream.
- */
-function tryFixAndParse(text: string): unknown {
-  const candidate = text.trim();
-  const start = candidate.indexOf('{');
+/** Last resort: close unterminated strings/braces and try to parse. */
+function tryCloseAndParse(text: string): unknown {
+  const start = text.indexOf('{');
   if (start === -1) return undefined;
+  let jsonStr = text.slice(start);
 
-  let jsonStr = candidate.slice(start);
-  
-  // Walk the JSON tracking state, repairing as we go
-  let depth = 0;       // brace depth
-  let arrDepth = 0;    // bracket depth
+  let depth = 0;
+  let arrDepth = 0;
   let inStr = false;
   let strCh = '';
   let esc = false;
@@ -304,62 +386,41 @@ function tryFixAndParse(text: string): unknown {
 
   for (let i = 0; i < jsonStr.length; i++) {
     const ch = jsonStr[i]!;
-    
     if (esc) { esc = false; continue; }
     if (ch === '\\') { esc = true; continue; }
-    
-    if (inStr) {
-      if (ch === strCh) inStr = false;
-      continue;
-    }
-    
-    if (ch === '"' || ch === "'") {
-      inStr = true;
-      strCh = ch;
-      continue;
-    }
-    
+    if (inStr) { if (ch === strCh) inStr = false; continue; }
+    if (ch === '"' || ch === "'") { inStr = true; strCh = ch; continue; }
     if (ch === '{') depth++;
     else if (ch === '}') {
       depth--;
       if (depth === 0 && arrDepth === 0) { lastGoodIndex = i; break; }
     }
     else if (ch === '[') arrDepth++;
-    else if (ch === ']') {
-      arrDepth--;
-    }
+    else if (ch === ']') arrDepth--;
   }
 
   if (lastGoodIndex !== -1) {
-    // Found a balanced top-level object — use it
     jsonStr = jsonStr.slice(0, lastGoodIndex + 1);
   } else {
-    // Unbalanced — repair by closing whatever is open
-    // First, close any unterminated string
-    if (inStr) {
-      jsonStr += strCh; // close the string with the matching quote
-    }
-    // Close remaining arrays and objects
-    const closeBrackets = ']'.repeat(Math.max(0, arrDepth));
-    const closeBraces = '}'.repeat(Math.max(0, depth));
-    jsonStr += closeBrackets + closeBraces;
+    if (inStr) jsonStr += strCh;
+    jsonStr += ']'.repeat(Math.max(0, arrDepth));
+    jsonStr += '}'.repeat(Math.max(0, depth));
   }
 
-  // Fix trailing commas before } or ]
   jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
 
-  try {
-    return JSON.parse(jsonStr);
-  } catch {
-    // Last resort: try removing content after the last complete key-value pair
-    // Find last "}," or "}" at depth 1 and truncate there
-    const lastComplete = jsonStr.lastIndexOf('},');
-    if (lastComplete > 0) {
-      const truncated = jsonStr.slice(0, lastComplete + 1) + '}';
-      // Fix trailing commas again after truncation
-      const fixed = truncated.replace(/,\s*([}\]])/g, '$1');
-      try { return JSON.parse(fixed); } catch { /* give up */ }
-    }
-    return undefined;
+  // Try direct parse
+  let result = tryParseJson(jsonStr);
+  if (result !== undefined) return result;
+
+  // Try truncating to last complete change
+  const lastComplete = jsonStr.lastIndexOf('},');
+  if (lastComplete > 0) {
+    const truncated = jsonStr.slice(0, lastComplete + 1) + '}';
+    const fixed = truncated.replace(/,\s*([}\]])/g, '$1');
+    result = tryParseJson(fixed);
+    if (result !== undefined) return result;
   }
+
+  return undefined;
 }

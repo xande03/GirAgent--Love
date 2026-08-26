@@ -150,6 +150,13 @@ REGRAS DE SAÍDA:
 - Sempre retorne changes com pelo menos uma alteração concreta. NUNCA retorne needsClarification: true — resolva e aplique.
 - A única exceção para NÃO aplicar mudanças é se o pedido for explicitamente destrutivo (ex: "apague todos os arquivos", "delete o repositório inteiro").
 
+ESCAPE DE JSON (CRÍTICO — EVITA ERROS DE PARSING):
+- Aspas duplas (\") dentro de valores string DEVEM ser escapadas como \".
+- Barras invertidas (\\) DEVEM ser escapadas como \\\\.
+- Quebras de linha dentro de strings DEVEM ser \\n, nunca quebras de linha literais.
+- O campo \\"content\\" contém código-fonte com muitos caracteres especiais — certifique-se de que o JSON resultante é válido e pode ser parseado por JSON.parse() sem erros.
+- Antes de enviar, verifique mentalmente: o JSON estaria bem-formado se passado para JSON.parse()?
+
 Formato:
 {
   "reasoning": "análise da estrutura e do encaixe da mudança (markdown curto)",

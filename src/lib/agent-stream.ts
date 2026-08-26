@@ -149,14 +149,16 @@ Analise-as detalhadamente como REFERÊNCIA VISUAL para entender o que o usuário
             question?: string;
             changes?: { path: string; action?: "upsert" | "delete"; content?: string }[];
           }>(fullText);
-        } catch (jsonErr) {
-          // If JSON parsing fails, send the raw text as a summary with a note
+        } catch {
+          // JSON parsing completely failed — try to extract summary via regex
+          const summary = extractFieldFromText(fullText, 'summary');
+          const reasoning = extractFieldFromText(fullText, 'reasoning');
           send(
             "result",
             JSON.stringify({
               applied: false,
-              reasoning: "",
-              summary: fullText.slice(0, 3000) || "O modelo gerou uma resposta que não pôde ser processada. Tente novamente.",
+              reasoning: reasoning ?? "",
+              summary: summary || fullText.slice(0, 800) || "O modelo gerou uma resposta que não pôde ser processada. Tente novamente com uma descrição mais curta.",
               imageIntent: intent,
               commit: null,
               changedPaths: [],
@@ -262,4 +264,24 @@ function sseError(message: string): Response {
     status: 400,
     headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
   });
+}
+
+/**
+ * Regex-based fallback to extract a string field value from potentially broken JSON.
+ * Handles escaped quotes and \n within the value.
+ */
+function extractFieldFromText(text: string, field: string): string | null {
+  // Match "field": "..." handling escaped quotes and newlines
+  const regex = new RegExp(
+    `"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.|\\"|(?:"(?=[^,}\\]])))*)"`,
+    's',
+  );
+  const match = text.match(regex);
+  if (!match) return null;
+  // Unescape common JSON escapes
+  return match[1]!
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\');
 }
