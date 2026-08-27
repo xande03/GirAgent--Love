@@ -12,4 +12,7 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Pin the deploy target for external CI (Netlify). Inside the Lovable sandbox
+  // the platform still controls the preset/output layout.
+  nitro: { preset: "netlify" },
 });
