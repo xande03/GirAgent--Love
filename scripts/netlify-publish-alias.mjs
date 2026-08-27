@@ -1,26 +1,25 @@
 // Netlify's UI-configured publish directory (dist/client) overrides netlify.toml.
-// This script mirrors whatever static output the build produced into dist/client
+// This script mirrors the static output that vite build produced into dist/client
 // so the deploy succeeds regardless of which publish path Netlify uses.
-import { cp, mkdir, readdir, stat } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { cp, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { tmpdir } from "node:os";
 
 const root = process.cwd();
 const target = path.join(root, "dist", "client");
 
-const candidates = [
-  "dist/public",
-  ".output/public",
-  "dist",
-  ".netlify/static",
-];
+const candidates = ["dist/public", ".output/public", "dist", ".netlify/static"];
 
 async function isStaticDir(dir) {
   try {
     const s = await stat(dir);
     if (!s.isDirectory()) return false;
     const entries = await readdir(dir);
-    return entries.includes("index.html") || entries.includes("_headers") || entries.includes("assets");
+    return (
+      entries.includes("index.html") ||
+      entries.includes("_headers") ||
+      entries.includes("assets")
+    );
   } catch {
     return false;
   }
@@ -37,19 +36,20 @@ for (const c of candidates) {
 }
 
 if (!source) {
-  console.warn("[netlify-publish-alias] no static output directory found; skipping");
+  console.warn(
+    "[netlify-publish-alias] no static output directory found; skipping"
+  );
   process.exit(0);
 }
 
-if (existsSync(target) && source === path.join(root, "dist")) {
-  // avoid copying dist into itself
-  console.log("[netlify-publish-alias] dist/client already present");
-  process.exit(0);
-}
+// Use a temp dir OUTSIDE of source to avoid Node.js EINVAL on cp.
+const tmp = path.join(tmpdir(), `netlify-publish-${Date.now()}`);
 
-await mkdir(target, { recursive: true });
-await cp(source, target, {
-  recursive: true,
-  filter: (src) => !src.startsWith(target),
-});
-console.log(`[netlify-publish-alias] mirrored ${path.relative(root, source)} -> dist/client`);
+await rm(tmp, { recursive: true, force: true });
+await cp(source, tmp, { recursive: true });
+await rm(target, { recursive: true, force: true });
+await mkdir(path.dirname(target), { recursive: true });
+await rename(tmp, target);
+console.log(
+  `[netlify-publish-alias] mirrored ${path.relative(root, source)} -> dist/client`
+);
