@@ -150,23 +150,28 @@ Analise-as detalhadamente como REFERÊNCIA VISUAL para entender o que o usuário
             changes?: { path: string; action?: "upsert" | "delete"; content?: string }[];
           }>(fullText);
         } catch {
-          // JSON parsing completely failed — try to extract summary via regex
-          const summary = extractFieldFromText(fullText, 'summary');
-          const reasoning = extractFieldFromText(fullText, 'reasoning');
-          send(
-            "result",
-            JSON.stringify({
-              applied: false,
-              reasoning: reasoning ?? "",
-              summary: summary || fullText.slice(0, 800) || "O modelo gerou uma resposta que não pôde ser processada. Tente novamente com uma descrição mais curta.",
-              imageIntent: intent,
-              commit: null,
-              changedPaths: [],
-              sanitized: flagged,
-            }),
-          );
-          send("phase", JSON.stringify({ phase: "done" }));
-          return;
+          // JSON parsing failed — try to extract all fields via regex as robust fallback
+          const fallback = extractAllFieldsFallback(fullText);
+          if (fallback && fallback.changes.length > 0) {
+            parsed = fallback;
+          } else {
+            // Truly unparseable — return friendly message
+            const summary = extractFieldFromText(fullText, 'summary');
+            send(
+              "result",
+              JSON.stringify({
+                applied: false,
+                reasoning: extractFieldFromText(fullText, 'reasoning') ?? "",
+                summary: summary || "O modelo gerou uma resposta que não pôde ser processada. Tente novamente com uma descrição mais curta.",
+                imageIntent: intent,
+                commit: null,
+                changedPaths: [],
+                sanitized: flagged,
+              }),
+            );
+            send("phase", JSON.stringify({ phase: "done" }));
+            return;
+          }
         }
 
         if (!parsed.changes?.length) {
@@ -226,6 +231,7 @@ Analise-as detalhadamente como REFERÊNCIA VISUAL para entender o que o usuário
             applied: true,
             reasoning: parsed.reasoning ?? "",
             summary: parsed.summary ?? "Alterações aplicadas.",
+            report: buildReport(parsed.changes!, parsed.summary),
             imageIntent: intent,
             commit,
             changedPaths: changes.map((c) => c.path),
@@ -267,13 +273,120 @@ function sseError(message: string): Response {
 }
 
 /**
+ * Builds a clean, user-friendly report of applied changes (no code shown).
+ */
+function buildReport(changes: { path: string; action?: string; content?: string }[], summary?: string): string {
+  const lines: string[] = [];
+
+  if (summary) {
+    lines.push(summary);
+    lines.push("");
+  }
+
+  lines.push(`**${changes.length} arquivo(s) modificado(s):**`);
+  lines.push("");
+
+  for (const c of changes) {
+    const action = c.action === "delete" ? "Removido" : "Criado/Atualizado";
+    const content = c.content ?? "";
+    const sizeKB = (content.length / 1024).toFixed(1);
+    lines.push(`- \`${c.path}\` — ${action} (${sizeKB} KB)`);
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Robust regex-based fallback that extracts all fields (including changes with content)
+ * from potentially broken JSON text. This ensures commit/push still happens even when
+ * the JSON parser fails due to unescaped characters in code content.
+ */
+function extractAllFieldsFallback(text: string): {
+  reasoning?: string;
+  summary?: string;
+  commitMessage?: string;
+  changes: { path: string; action?: "upsert" | "delete"; content?: string }[];
+} | null {
+  const reasoning = extractFieldFromText(text, 'reasoning') ?? undefined;
+  const summary = extractFieldFromText(text, 'summary') ?? undefined;
+  const commitMessage = extractFieldFromText(text, 'commitMessage') ?? undefined;
+
+  const changes: { path: string; action?: "upsert" | "delete"; content?: string }[] = [];
+
+  // Find all change paths
+  const pathActionRegex = /"path"\s*:\s*"((?:[^"\\\\]|\\\\.)*)"/g;
+  const paths: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = pathActionRegex.exec(text)) !== null) {
+    const p = m[1]!.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+    paths.push(p);
+  }
+
+  for (let i = 0; i < paths.length; i++) {
+    const path = paths[i]!;
+    const pathPos = text.indexOf(`"path"`, text.indexOf(path));
+
+    // Determine action
+    const afterPath = text.slice(pathPos);
+    const actionMatch = afterPath.match(/"action"\s*:\s*"(upsert|delete)"/);
+    const action = (actionMatch?.[1] as "upsert" | "delete") ?? "upsert";
+
+    // Find content start
+    const contentMatch = afterPath.match(/"content"\s*:\s*"/);
+    if (!contentMatch || action === "delete") {
+      changes.push({ path, action });
+      continue;
+    }
+
+    const contentStart = pathPos + contentMatch.index! + contentMatch[0]!.length;
+    // Extract content by finding the matching closing quote (handling escapes)
+    let j = contentStart;
+    let contentStr = "";
+    while (j < text.length) {
+      const ch = text[j]!;
+      if (ch === '\\' && j + 1 < text.length) {
+        contentStr += ch + text[j + 1]!;
+        j += 2;
+        continue;
+      }
+      if (ch === '"') {
+        // Check if this is a real terminator
+        let k = j + 1;
+        while (k < text.length && text[k] === ' ') k++;
+        const nextCh = k < text.length ? text[k] : '';
+        if (nextCh === ',' || nextCh === '}' || nextCh === ']' || nextCh === '') {
+          break;
+        }
+        contentStr += ch;
+        j++;
+        continue;
+      }
+      contentStr += ch;
+      j++;
+    }
+
+    // Unescape the content
+    const content = contentStr
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\');
+
+    changes.push({ path, action, content });
+  }
+
+  if (changes.length === 0) return null;
+  return { reasoning, summary, commitMessage, changes };
+}
+
+/**
  * Regex-based fallback to extract a string field value from potentially broken JSON.
  * Handles escaped quotes and \n within the value.
  */
 function extractFieldFromText(text: string, field: string): string | null {
   // Match "field": "..." handling escaped quotes and newlines
   const regex = new RegExp(
-    `"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.|\\"|(?:"(?=[^,}\\]])))*)"`,
+    `"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.|\\\\"|(?:"(?=[^,}\\]])))*)"`,
     's',
   );
   const match = text.match(regex);

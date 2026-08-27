@@ -202,6 +202,7 @@ type AgentResult = {
   applied: boolean;
   reasoning: string;
   summary: string;
+  report?: string;
   imageIntent: "add-to-project" | "reference-only";
   commit: { sha: string; url: string; branch: string } | null;
   changedPaths: string[];
@@ -247,6 +248,12 @@ const PREVIEW_PLATFORMS: PreviewPlatform[] = [
     icon: Globe,
     url: (o, r) => `https://vercel.com/new/clone?repository-url=https://github.com/${o}/${r}`,
     description: "Deploy instantâneo",
+  },
+  {
+    name: "Netlify",
+    icon: Globe,
+    url: (o, r) => `https://app.netlify.com/start/deploy?repository=https://github.com/${o}/${r}`,
+    description: "Deploy e preview com Netlify",
   },
 ];
 
@@ -500,13 +507,13 @@ function Home() {
           }
         }
 
-        // Add the final result as a turn
+        // Add the final result as a turn — use report (clean) instead of summary (may contain code)
         if (resultData) {
           setTurns((t) => [
             ...t,
             {
               role: "assistant",
-              content: resultData.summary,
+              content: resultData.report || resultData.summary,
               reasoning: resultData.reasoning,
               changedPaths: resultData.changedPaths,
               commitUrl: resultData.commit?.url,

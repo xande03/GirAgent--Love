@@ -150,6 +150,13 @@ REGRAS DE SAÍDA:
 - Sempre retorne changes com pelo menos uma alteração concreta. NUNCA retorne needsClarification: true — resolva e aplique.
 - A única exceção para NÃO aplicar mudanças é se o pedido for explicitamente destrutivo (ex: "apague todos os arquivos", "delete o repositório inteiro").
 
+REGRAS DO CAMPO "summary":
+- O campo "summary" é o que o usuário VÊ no chat. Deve ser um RELATÓRIO CLARO E SIMPLES em markdown.
+- NUNCA inclua código-fonte, blocos de código, diffs ou trechos de código no summary.
+- Descreva APENAS o que foi feito, quais arquivos foram alterados e o resultado esperado.
+- Use linguagem simples e direta. Exemplo: "Atualizei a cor primária do tema de azul para verde e ajustei o padding do header."
+- Se modificou muitos arquivos, liste apenas os nomes dos arquivos e a natureza da mudança, sem detalhes técnicos.
+
 ESCAPE DE JSON (CRÍTICO — EVITA ERROS DE PARSING):
 - Aspas duplas (\") dentro de valores string DEVEM ser escapadas como \".
 - Barras invertidas (\\) DEVEM ser escapadas como \\\\.
