@@ -700,7 +700,7 @@ function Home() {
       />
 
       {/* ── Header ── */}
-      <header className="sticky top-0 z-30 shrink-0 border-b border-border bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/70">
+      <header className="z-30 shrink-0 border-b border-border bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/70">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card sm:h-10 sm:w-10">
@@ -945,7 +945,7 @@ function Home() {
       {/* ── Chat ── */}
       <div className={`relative z-10 flex min-h-0 w-full flex-1 gap-3 px-4 py-4 sm:px-6 sm:py-6 ${showPreviewPanel && previewUrl ? "" : "max-w-7xl mx-auto"}`}>
         <div
-          className="flex min-h-0 flex-1 flex-col rounded-2xl border border-border bg-card"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card"
           style={{ boxShadow: "var(--shadow-panel)" }}
         >
           <div
