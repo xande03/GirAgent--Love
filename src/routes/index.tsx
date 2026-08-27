@@ -412,14 +412,12 @@ function Home() {
 
   /* Auto-refresh preview iframe when a new commit is applied */
   useEffect(() => {
-    if (showPreviewPanel && previewUrl) {
-      const lastTurn = turns[turns.length - 1];
-      if (lastTurn?.commitUrl) {
-        // Small delay so Netlify/Vercel has time to rebuild
-        const t = setTimeout(() => setPreviewKey((k) => k + 1), 3000);
-        return () => clearTimeout(t);
-      }
-    }
+    if (!showPreviewPanel || !previewUrl) return undefined;
+    const lastTurn = turns[turns.length - 1];
+    if (!lastTurn?.commitUrl) return undefined;
+    // Small delay so Netlify/Vercel has time to rebuild
+    const t = setTimeout(() => setPreviewKey((k) => k + 1), 3000);
+    return () => clearTimeout(t);
   }, [turns.length, showPreviewPanel, previewUrl]);
 
   const addFiles = useCallback(async (files: FileList | File[]) => {

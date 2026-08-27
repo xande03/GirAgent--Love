@@ -413,7 +413,12 @@ function extractAllFieldsFallback(text: string): {
   }
 
   if (changes.length === 0) return null;
-  return { reasoning, summary, commitMessage, changes };
+  return {
+    ...(reasoning !== undefined ? { reasoning } : {}),
+    ...(summary !== undefined ? { summary } : {}),
+    ...(commitMessage !== undefined ? { commitMessage } : {}),
+    changes,
+  };
 }
 
 /**
