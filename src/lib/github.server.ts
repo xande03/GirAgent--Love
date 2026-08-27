@@ -192,7 +192,9 @@ export type ChangeFile =
   | { path: string; action: "upsert"; content: string; encoding?: "utf8" | "base64" }
   | { path: string; action: "delete" };
 
-/** Commits directly to the default branch (no branches, no PRs). */
+/** Commits directly to the default branch (no branches, no PRs).
+ *  Includes retry on the ref update (push) step, which is the most common failure point.
+ */
 export async function commitToMain(
   token: string,
   ref: RepoRef,
@@ -238,10 +240,48 @@ export async function commitToMain(
     body: JSON.stringify({ message, tree: newTree.sha, parents: [headSha] }),
   });
 
-  await gh(token, `/repos/${ref.owner}/${ref.repo}/git/refs/heads/${branch}`, {
-    method: "PATCH",
-    body: JSON.stringify({ sha: commit.sha, force: false }),
-  });
+  // Push the ref — retry up to 2 times (handles race conditions / transient GitHub errors)
+  let pushSuccess = false;
+  let lastPushErr = "";
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await gh(token, `/repos/${ref.owner}/${ref.repo}/git/refs/heads/${branch}`, {
+        method: "PATCH",
+        body: JSON.stringify({ sha: commit.sha, force: false }),
+      });
+      pushSuccess = true;
+      break;
+    } catch (pushErr) {
+      lastPushErr = (pushErr as Error).message ?? String(pushErr);
+      console.error(`[github] Push attempt ${attempt}/3 failed:`, lastPushErr);
+      // On 409 (conflict), re-read head and re-create commit with updated parent
+      if (lastPushErr.includes("409") || lastPushErr.includes("conflict")) {
+        try {
+          const freshHead = await gh(token, `/repos/${ref.owner}/${ref.repo}/git/ref/heads/${branch}`);
+          const freshSha = freshHead.object.sha as string;
+          const retryCommit = await gh(token, `/repos/${ref.owner}/${ref.repo}/git/commits`, {
+            method: "POST",
+            body: JSON.stringify({ message: message + " (retry)", tree: newTree.sha, parents: [freshSha] }),
+          });
+          await gh(token, `/repos/${ref.owner}/${ref.repo}/git/refs/heads/${branch}`, {
+            method: "PATCH",
+            body: JSON.stringify({ sha: retryCommit.sha, force: false }),
+          });
+          pushSuccess = true;
+          console.log(`[github] Push succeeded on conflict retry with new commit ${retryCommit.sha}`);
+          break;
+        } catch (retryErr) {
+          lastPushErr = (retryErr as Error).message ?? String(retryErr);
+          console.error(`[github] Conflict retry failed:`, lastPushErr);
+        }
+      }
+      if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 1000));
+    }
+  }
+
+  if (!pushSuccess) {
+    throw new Error(`Falha ao fazer push após 3 tentativas. Último erro: ${lastPushErr}`);
+  }
 
   return {
     sha: commit.sha,

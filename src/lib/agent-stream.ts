@@ -213,17 +213,54 @@ Analise-as detalhadamente como REFERÊNCIA VISUAL para entender o que o usuário
           }
         }
 
-        // Phase 3: Commit
+        // Phase 3: Commit (with retry — guarantees push)
         send("phase", JSON.stringify({ phase: "committing" }));
         invalidateSnapshotCache(ref.owner, ref.repo);
 
-        const commit = await commitToMain(
-          body.token,
-          ref,
-          changes as never,
-          parsed.commitMessage?.slice(0, 200) || `agente: ${instruction.slice(0, 60)}`,
-          snap.branch,
-        );
+        let commitResult: { sha: string; url: string; branch: string } | null = null;
+        let commitError: string | null = null;
+        const maxRetries = 3;
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            commitResult = await commitToMain(
+              body.token,
+              ref,
+              changes as never,
+              parsed.commitMessage?.slice(0, 200) || `agente: ${instruction.slice(0, 60)}`,
+              snap.branch,
+            );
+            commitError = null;
+            break; // success
+          } catch (commitErr) {
+            const msg = (commitErr as Error).message ?? String(commitErr);
+            commitError = msg;
+            console.error(`[agent-stream] Commit attempt ${attempt}/${maxRetries} failed:`, msg);
+            if (attempt < maxRetries) {
+              // Wait before retry (1s, 2s, ...)
+              await new Promise((r) => setTimeout(r, attempt * 1000));
+            }
+          }
+        }
+
+        if (!commitResult) {
+          // Commit failed after all retries — report the error but tell user changes were generated
+          send(
+            "result",
+            JSON.stringify({
+              applied: false,
+              reasoning: parsed.reasoning ?? "",
+              summary: `As alterações foram geradas com sucesso, mas **não foi possível commitar** no GitHub após ${maxRetries} tentativas.\n\nErro: ${commitError}\n\nTente novamente — o agente vai reenviar as mudanças.`,
+              report: buildReport(parsed.changes!, parsed.summary),
+              imageIntent: intent,
+              commit: null,
+              changedPaths: changes.map((c) => c.path),
+              sanitized: flagged,
+            }),
+          );
+          send("phase", JSON.stringify({ phase: "done" }));
+          return;
+        }
 
         send(
           "result",
@@ -233,7 +270,7 @@ Analise-as detalhadamente como REFERÊNCIA VISUAL para entender o que o usuário
             summary: parsed.summary ?? "Alterações aplicadas.",
             report: buildReport(parsed.changes!, parsed.summary),
             imageIntent: intent,
-            commit,
+            commit: commitResult,
             changedPaths: changes.map((c) => c.path),
             sanitized: flagged,
           }),
