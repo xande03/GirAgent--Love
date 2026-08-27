@@ -234,12 +234,7 @@ const PREVIEW_PLATFORMS: PreviewPlatform[] = [
     url: (o, r) => `https://stackblitz.com/github/${o}/${r}`,
     description: "Preview completo com hot-reload",
   },
-  {
-    name: "CodeSandbox",
-    icon: Globe,
-    url: (o, r) => `https://githubbox.com/${o}/${r}`,
-    description: "Sandbox no navegador",
-  },
+
   {
     name: "GitHub Codespaces",
     icon: ExternalLink,
@@ -337,11 +332,12 @@ function Home() {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [showPreviewMenu, setShowPreviewMenu] = useState(false);
+  const [showPreviewMenu, setShowPreviewMenu] = useState<false | 'input'>(false);
   const [previewUrl, setPreviewUrl] = useState("");
   const [showPreviewPanel, setShowPreviewPanel] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
   const previewIframeRef = useRef<HTMLIFrameElement>(null);
+  const externalUrlRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // Streaming state
@@ -805,7 +801,7 @@ function Home() {
             {/* Platform deploy links (dropdown) */}
             <div className="relative">
               <button
-                onClick={() => setShowPreviewMenu((v) => !v)}
+                onClick={() => setShowPreviewMenu((v) => v ? false : 'input')}
                 className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-all hover:border-primary hover:text-primary hover:shadow-sm active:scale-95"
                 aria-label="Plataformas de deploy"
                 title="Abrir em plataformas de deploy"
@@ -822,6 +818,56 @@ function Home() {
                     <p className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                       Plataformas de deploy
                     </p>
+                    {/* Link Externo — inline URL input */}
+                    <div className="px-2.5 py-2">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                          <Link2 className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-foreground">Link Externo</div>
+                          <div className="text-[11px] text-muted-foreground">Cole a URL de preview do seu site</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 rounded-lg border border-border bg-background/60 px-2 py-1.5">
+                        <Globe className="h-3 w-3 shrink-0 text-muted-foreground/50" />
+                        <input
+                          type="url"
+                          value={previewUrl}
+                          ref={externalUrlRef}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const val = (e.target as HTMLInputElement).value.trim();
+                              if (val) {
+                                setPreviewUrl(val);
+                                setShowPreviewPanel(true);
+                                setShowPreviewMenu(false);
+                              }
+                            }
+                          }}
+                          placeholder="https://seu-site.netlify.app"
+                          className="flex-1 min-w-0 bg-transparent font-mono text-[11px] outline-none placeholder:text-muted-foreground/40"
+                          onFocus={() => setShowPreviewMenu('input')}
+                        />
+                        <button
+                          onClick={() => {
+                            const val = externalUrlRef.current?.value.trim();
+                            if (val) {
+                              setPreviewUrl(val);
+                              setShowPreviewPanel(true);
+                              setShowPreviewMenu(false);
+                            }
+                          }}
+                          className="shrink-0 rounded-md bg-primary px-2 py-1 text-[10px] font-semibold text-primary-foreground transition-all hover:brightness-110 active:scale-95"
+                        >
+                          Preview
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="my-1 border-t border-border" />
+
                     {PREVIEW_PLATFORMS.map((platform) => {
                       const Icon = platform.icon;
                       return (
