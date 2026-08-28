@@ -544,6 +544,32 @@ function Home() {
           }
         }
 
+        // Process any remaining data in the buffer (last event may not end with \n\n)
+        if (buffer.trim()) {
+          const lines = buffer.split("\n");
+          let eventType = "";
+          let eventData = "";
+          for (const line of lines) {
+            if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+            if (line.startsWith("data: ")) eventData = line.slice(6);
+          }
+          if (eventType === "result") {
+            try {
+              resultData = JSON.parse(eventData) as AgentResult;
+            } catch {}
+          } else if (eventType === "error") {
+            try {
+              const { message } = JSON.parse(eventData);
+              setTurns((t) => [...t, { role: "assistant", content: message, error: true }]);
+            } catch {}
+          } else if (eventType === "phase") {
+            try {
+              const { phase } = JSON.parse(eventData);
+              setStreamPhase(phase as StreamPhase);
+            } catch {}
+          }
+        }
+
         // Add the final result as a turn — use report (clean) instead of summary (may contain code)
         if (resultData) {
           setTurns((t) => [

@@ -9,7 +9,7 @@ export type ChatMessage = {
 
 const REQUEST_TIMEOUT_MS = 120_000; // 2 minutes
 const REQUEST_TIMEOUT_WITH_IMAGES_MS = 240_000; // 4 minutes for vision requests
-const DEFAULT_MAX_TOKENS = 16_384;
+const DEFAULT_MAX_TOKENS = 32_768;
 
 function getLlmConfig() {
   const key = process.env["DEEPSEEK_API_KEY"];
@@ -76,9 +76,7 @@ export async function chat(messages: ChatMessage[], opts?: { temperature?: numbe
 
       const finishReason = choice.finish_reason;
       if (finishReason === "length") {
-        throw new Error(
-          "A resposta do modelo foi truncada por limite de tokens. Tente ser mais específico ou reduza o escopo da solicitação.",
-        );
+        console.warn("[chat] Resposta truncada por limite de tokens — tentando extrair JSON parcial.");
       }
 
       return text;
@@ -151,6 +149,11 @@ export async function* chatStream(
     let buffer = "";
     let lastFinishReason: string | null = null;
 
+    // When truncation is detected, we return normally instead of throwing.
+    // This lets the caller use whatever text was received (the JSON parser
+    // can handle partial/truncated JSON via tryCloseAndParse).
+    let truncated = false;
+
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -165,12 +168,7 @@ export async function* chatStream(
           if (!trimmed || !trimmed.startsWith("data: ")) continue;
           const payload = trimmed.slice(6);
           if (payload === "[DONE]") {
-            // Stream ended — check if truncated
-            if (lastFinishReason === "length") {
-              throw new Error(
-                "A resposta do modelo foi truncada por limite de tokens. Tente ser mais específico ou reduza o escopo da solicitação.",
-              );
-            }
+            if (lastFinishReason === "length") truncated = true;
             return;
           }
 
@@ -179,25 +177,24 @@ export async function* chatStream(
             const choice = json?.choices?.[0];
             const content = choice?.delta?.content;
             if (content) yield content;
-            // Track finish reason from any chunk
             if (choice?.finish_reason) {
               lastFinishReason = choice.finish_reason;
             }
-          } catch (err) {
-            // If it's our truncation error, re-throw it
-            if (err instanceof Error && err.message.includes("truncada")) throw err;
-            // Otherwise skip malformed SSE data chunks
+          } catch {
+            // Skip malformed SSE data chunks
           }
         }
       }
-      // If the stream ended without [DONE], still check truncation
-      if (lastFinishReason === "length") {
-        throw new Error(
-          "A resposta do modelo foi truncada por limite de tokens. Tente ser mais específico ou reduza o escopo da solicitação.",
-        );
-      }
+      // Stream ended without [DONE]
+      if (lastFinishReason === "length") truncated = true;
     } finally {
       reader.releaseLock();
+    }
+
+    // If truncated, log a warning but do NOT throw — the partial text
+    // may still contain valid JSON that extractJson can parse.
+    if (truncated) {
+      console.warn("[chatStream] Resposta truncada por limite de tokens — tentando extrair JSON parcial.");
     }
   };
 
