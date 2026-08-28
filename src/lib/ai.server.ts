@@ -149,6 +149,7 @@ export async function* chatStream(
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let lastFinishReason: string | null = null;
 
     try {
       while (true) {
@@ -163,16 +164,37 @@ export async function* chatStream(
           const trimmed = line.trim();
           if (!trimmed || !trimmed.startsWith("data: ")) continue;
           const payload = trimmed.slice(6);
-          if (payload === "[DONE]") return;
+          if (payload === "[DONE]") {
+            // Stream ended — check if truncated
+            if (lastFinishReason === "length") {
+              throw new Error(
+                "A resposta do modelo foi truncada por limite de tokens. Tente ser mais específico ou reduza o escopo da solicitação.",
+              );
+            }
+            return;
+          }
 
           try {
             const json = JSON.parse(payload);
-            const content = json?.choices?.[0]?.delta?.content;
+            const choice = json?.choices?.[0];
+            const content = choice?.delta?.content;
             if (content) yield content;
-          } catch {
-            // Skip malformed SSE data chunks
+            // Track finish reason from any chunk
+            if (choice?.finish_reason) {
+              lastFinishReason = choice.finish_reason;
+            }
+          } catch (err) {
+            // If it's our truncation error, re-throw it
+            if (err instanceof Error && err.message.includes("truncada")) throw err;
+            // Otherwise skip malformed SSE data chunks
           }
         }
+      }
+      // If the stream ended without [DONE], still check truncation
+      if (lastFinishReason === "length") {
+        throw new Error(
+          "A resposta do modelo foi truncada por limite de tokens. Tente ser mais específico ou reduza o escopo da solicitação.",
+        );
       }
     } finally {
       reader.releaseLock();

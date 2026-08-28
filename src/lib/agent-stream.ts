@@ -155,14 +155,17 @@ Analise-as detalhadamente como REFERÊNCIA VISUAL para entender o que o usuário
           if (fallback && fallback.changes.length > 0) {
             parsed = fallback;
           } else {
-            // Truly unparseable — return friendly message
+            // Log raw response for server-side debugging
+            console.error("[agent-stream] Unparseable LLM response:", fullText.slice(0, 2000));
+            // Truly unparseable — return friendly message with a snippet
             const summary = extractFieldFromText(fullText, 'summary');
+            const snippet = fullText.slice(0, 300).replace(/\n/g, ' ');
             send(
               "result",
               JSON.stringify({
                 applied: false,
                 reasoning: extractFieldFromText(fullText, 'reasoning') ?? "",
-                summary: summary || "O modelo gerou uma resposta que não pôde ser processada. Tente novamente com uma descrição mais curta.",
+                summary: summary || `O modelo gerou uma resposta que não pôde ser processada como JSON.\n\nTrecho recebido:\n> ${snippet}\n\nTente reformular a solicitação de forma mais direta.`,
                 imageIntent: intent,
                 commit: null,
                 changedPaths: [],
