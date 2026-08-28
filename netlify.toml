@@ -1,6 +1,8 @@
 [build]
   command = "bun run build"
+  # Nitro 3 (TanStack Start) emits static assets to dist/client, not .output/public.
   publish = "dist/client"
 
 [build.environment]
   NODE_VERSION = "22"
+  NITRO_PRESET = "netlify"
