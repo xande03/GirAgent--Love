@@ -45,7 +45,7 @@ export async function handleAgentStream(request: Request): Promise<Response> {
   const { parseRepoUrl, getCachedSnapshot, setSnapshotCache, invalidateSnapshotCache, commitToMain } =
     await import("./github.server");
   const { chatStream, extractJson } = await import("./ai.server");
-  const { classifyImageIntent, buildSystemPrompt, assetPath, sanitizeInstruction, validateChanges } =
+  const { classifyImageIntent, buildSystemPrompt, assetPath, sanitizeInstruction, validateChanges, validateChangesConsistency } =
     await import("./agent-core");
 
   const { clean: instruction, flagged } = sanitizeInstruction(body.instruction);
@@ -214,8 +214,37 @@ Regras:
           return;
         }
 
-        // Validate changes
+        // Validate changes (security + size)
         validateChanges(parsed.changes);
+
+        // Validate code consistency (truncation, broken imports, unbalanced brackets)
+        const consistencyWarnings = validateChangesConsistency(parsed.changes, snap.paths);
+        const criticalWarnings = consistencyWarnings.filter((w) =>
+          /truncad|incompleto|desbalancead|não existe/i.test(w),
+        );
+
+        if (criticalWarnings.length > 0) {
+          console.error("[agent-stream] Code consistency check failed:", criticalWarnings);
+          send(
+            "result",
+            JSON.stringify({
+              applied: false,
+              reasoning: parsed.reasoning ?? "",
+              summary: `**Código gerado com inconsistências detectadas** — commit cancelado para evitar build quebrado.\n\nProblemas encontrados:\n${criticalWarnings.map((w) => `- ${w}`).join("\n")}\n\nTente reformular a solicitação de forma mais específica ou com escopo menor.`,
+              imageIntent: intent,
+              commit: null,
+              changedPaths: parsed.changes!.map((c) => c.path),
+              sanitized: flagged,
+            }),
+          );
+          send("phase", JSON.stringify({ phase: "done" }));
+          return;
+        }
+
+        // Log non-critical warnings but proceed
+        if (consistencyWarnings.length > 0) {
+          console.warn("[agent-stream] Non-critical consistency warnings:", consistencyWarnings);
+        }
 
         const changes = parsed.changes.map((c) =>
           c.action === "delete"
