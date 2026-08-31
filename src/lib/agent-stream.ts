@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { ContentBlock } from "./ai.server";
+import type { ImageIntent } from "./agent-core";
 
 const AttachmentSchema = z.object({
   name: z.string(),
@@ -16,6 +17,8 @@ const StreamSchema = z.object({
   history: z
     .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() }))
     .default([]),
+  // Explicit image intent from the client (overrides heuristic classification)
+  imageIntent: z.enum(["add-to-project", "reference-only"]).optional(),
 });
 
 type StreamInput = z.infer<typeof StreamSchema>;
@@ -66,7 +69,8 @@ export async function handleAgentStream(request: Request): Promise<Response> {
         }
 
         const images = body.attachments.filter((a) => a.mime.startsWith("image/"));
-        const intent = classifyImageIntent(instruction);
+        // Use explicit client intent if provided, otherwise fall back to heuristic
+        const intent: ImageIntent = body.imageIntent ?? classifyImageIntent(instruction);
 
         const repoContext = [
           `Repositório: ${snap.owner}/${snap.repo} (branch de trabalho: main)`,
@@ -97,12 +101,26 @@ export async function handleAgentStream(request: Request): Promise<Response> {
 
         const imagePolicy =
           images.length === 0
-            ? "Nenhuma imagem foi anexada."
+            ? "MODO: Nenhuma imagem foi anexada."
             : intent === "add-to-project"
-              ? `Foram anexadas ${images.length} imagem(ns) que serão SALVAS no repositório. Os caminhos exatos de cada imagem são:
+              ? `MODO: SALVAR NO REPOSITÓRIO ("add-to-project").
+Foram anexadas ${images.length} imagem(ns) que SERÃO SALVAS no repositório.
+Os caminhos exatos de cada imagem (USE EXATAMENTE ESTES):
 ${images.map((img) => `- ${assetPath(img.name)}`).join("\n")}
-Analise-as detalhadamente como REFERÊNCIA VISUAL para entender o que o usuário deseja. Use EXATAMENTE os caminhos acima ao referenciar essas imagens no código (imports, tags img, background-image, etc.). NUNCA invente ou assuma outros caminhos de imagem.`
-              : `Foram anexadas ${images.length} imagem(ns) APENAS como REFERÊNCIA VISUAL — analise-as detalhadamente para entender layouts, cores, posições, componentes e o que o usuário deseja. Essas imagens NÃO serão salvas no repositório. Portanto, NUNCA crie imports, caminhos ou referências a arquivos de imagem para essas imagens anexadas. Em vez disso, reproduza o visual usando CSS, HTML, SVG ou imagens que já existem no repositório.`;
+Regras:
+- Analise a imagem visualmente e entenda seu conteúdo.
+- Crie referências a essas imagens no código usando EXATAMENTE os caminhos acima.
+- Pode usar em tags <img src="...">, imports CSS, background-image: url(...), etc.
+- NUNCA invente ou assuma outros caminhos de imagem.
+- A imagem será salva automaticamente pelo sistema.`
+              : `MODO: APENAS REFERÊNCIA VISUAL ("reference-only").
+Foram anexadas ${images.length} imagem(ns) como REFERÊNCIA VISUAL.
+Regras:
+- Analise a imagem DETALHADAMENTE: layouts, cores, posições, textos, ícones, espaçamentos, tipografia, sombras, gradientes, bordas, tamanhos.
+- Baseie TODAS as modificações no que você VÊ na imagem.
+- NUNCA crie imports, caminhos ou referências a arquivos de imagem para essas imagens (elas NÃO existirão no repositório).
+- EM VEZ DISSO, reproduza o visual usando CSS, HTML, SVG, inline styles, emojis ou assets que JÁ EXISTEM no repositório.
+- Exemplo: se a imagem mostra um botão azul arredondado, crie o botão com classes CSS — NÃO tente importar a imagem.`;
 
         const userBlocks: ContentBlock[] = [
           {

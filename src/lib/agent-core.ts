@@ -1,51 +1,74 @@
 export type ImageIntent = "add-to-project" | "reference-only";
 
+/* ── Intent classification ──
+ *
+ * IMPORTANT: The default is "reference-only" because most users attach
+ * screenshots as visual references for the agent to replicate layouts,
+ * colors, and styles — NOT to save the image file into the repo.
+ *
+ * Only classify as "add-to-project" when the user EXPLICITLY says they
+ * want the image file saved/added/included as an asset in the project.
+ */
+
+/** Patterns that STRONGLY indicate the user wants the image FILE saved into the repo. */
 const ADD_PATTERNS = [
-  /adicion\w*\s+(a|as|essa|esta|essas|estas|a\s+imagem|as\s+imagens|o\s+arquivo)/i,
-  /(imagem|imagens|logo|foto|banner|ícone|icone|print|splash|background|fundo)[^.]{0,40}(no|ao|dentro do|para o|à|no)\s+projeto/i,
-  /(inserir|insira|inclua|incluir|coloque|colocar|suba|subir|use|usar|salve|salvar)[^.]{0,40}(imagem|imagens|logo|foto|banner|ícone|icone|print)[^.]{0,40}(no|ao|dentro do|para o|como)\s+(projeto|repositório|repositorio|assets|pasta|site|página|pagina|código|codigo)/i,
-  /(imagem|imagens)[^.]{0,30}(deve|devem)\s+(fazer parte|ser adicionad|ser inserid|ser us\w+ no projeto)/i,
-  /(substitu\w*|troque|mude|altere|atualize|trocar|mudar|alterar|atualizar)[^.]{0,30}(a\s+)?(imagem|logo|foto|banner|ícone|icone|splash|fundo)/i,
-  /esta\s+(imagem|logo|foto|banner)/i,
-  /essa\s+(imagem|logo|foto|banner)/i,
-  /(a|aqui|neste)\s+(imagem|print|screenshot|anexo)\s+(anexad|enviad|que|acima)/i,
-  /coloque\s+(esta|essa|a)\s+(imagem|logo|foto)/i,
-  /(use|usar|usando)\s+(esta|essa|a|as)\s+(imagem|imagens|logo|foto)/i,
-  /(integra|incorpore|adicione)\s+(no|ao)\s+(projeto|app|site)/i,
+  // Explicit "add/insert/save image to project/assets"
+  /adicione?.*(imagem|imagens|logo|foto|banner|icones|icones?|splash|fundo|background|arquivo).*(no|ao|dentro do|para o|à|na).*(projeto|reposit[óo]rio|assets|pasta|site|p[áa]gina|c[óo]digo)/i,
+  /(inserir|insira|inclua|incluir|coloque|colocar|suba|subir|salve|salvar).*(imagem|imagens|logo|foto|banner|icones?|splash).*(no|ao|para o|como|na).*(projeto|reposit[óo]rio|assets|pasta|site|p[áa]gina)/i,
+  // "image should be part of the project"
+  /(imagem|imagens).*(deve|devem).*(fazer parte|ser adicionad|ser inserid|ser usad[ao] no projeto)/i,
+  // "replace/update the current logo/image"
+  /(substitua|troque|mude|altere|atualize|trocar|mudar|alterar|atualizar).{0,30}(a\s+)?(logo|imagem|foto|banner|icones?|splash|fundo)/i,
+  // "add this image as an asset/icon"
+  /(adicione?|inclua|use\s+como|salve)\s+(esta|essa|a|como)\s+(imagem|logo|foto|banner|icones?|splash)\s+(como|em|no|na|para)\s+(asset|icone|ícone|imagem|logo|fundo|background)/i,
+  // "upload image to public/assets"
+  /(upload|enviar|subir)\s+(esta|essa|a)\s*(imagem|logo|foto|banner)/i,
+  // "put/leave this image in the project"
+  /(coloque|deixe|ponha|mantenha)\s+(esta|essa|a)\s+(imagem|logo|foto|banner)\s+(no|no|no)\s+(projeto|site|reposit[óo]rio)/i,
 ];
 
+/** Patterns that indicate the user wants the model to LOOK AT the image for reference. */
 const REFERENCE_PATTERNS = [
-  /(observe|veja|olhe|analise|entenda|interprete|repare|note)[^.]{0,30}(imagem|imagens|anexo|print|captura)/i,
-  /(conforme|como|de acordo com|segundo|baseado n\w+|se baseando)[^.]{0,30}(imagem|imagens|anexo|print|captura|mostra)/i,
-  /(imagem|anexo)[^.]{0,20}(de|como)\s+(refer[êe]ncia|exemplo|modelo)/i,
-  /(replic|reproduz|copi|imit|clone)[^.]{0,30}(layout|design|interface|tela|página|pagina|ui)/i,
-  /(fa\w*a\s+igual|deixe\s+igual|mantenha\s+igual)[^.]{0,20}(a|ao|à)/i,
+  // "look at / observe / analyze this image"
+  /(observe|veja|olhe|analise|entenda|interprete|repare|note|descubra)[^.]{0,30}(imagem|imagens|anexo|print|captura|screenshot|tela)/i,
+  // "based on / according to / like this image"
+  /(conforme|como|de acordo com|segundo|baseado n\w+|se baseando|igual\s+a)[^.]{0,30}(imagem|imagens|anexo|print|captura|tela|mostra|essa|esta|aqui)/i,
+  // "use as reference / example / model"
+  /(imagem|anexo|print|tela)[^.]{0,20}(de|como)\s+(refer[êe]ncia|exemplo|modelo|base|guia)/i,
+  // "replicate / reproduce / copy this layout/design"
+  /(replic|reproduz|copi|imit|clone|fa[çz]a\s+igual|deixe\s+igual)[^.]{0,30}(layout|design|interface|tela|p[áa]gina|ui|visual|estilo|look)/i,
+  // "make it look like / similar to this"
+  /(fa[çz]a|deixe|torne)[^.]{0,20}(igual|parecido|semelhante|similar)[^.]{0,20}(a|ao|à|com|esse|esta|essa|aqui)/i,
+  // "I want it like this / do like this"
+  /(quero|eu\s+quero|gostaria|preciso)[^.]{0,20}(assim|igual|parecido|como|como\s+esta|como\s+essa|igual\s+a)/i,
+  // "follow this design / style"
+  /(siga|sigua|use)\s+(este|esse|esta|essa|o)\s+(design|layout|estilo|modelo|padrão|visual|tema)/i,
+  // "this is how it should look"
+  /(assim\s+(que|deve)|é\s+assim\s+que|deve\s+ficar\s+assim)/i,
 ];
 
 /**
- * Decides whether attached images should be committed into the repository or
- * used only as visual reference for reasoning.
+ * Classifies whether attached images should be committed into the repository
+ * or used only as visual reference for reasoning.
  *
- * Heuristic: if the user explicitly says to LOOK/ANALYZE/REPLICATE the image,
- * it's reference-only. Otherwise, if images are attached and the instruction
- * talks about images at all (replace, add, use, this image, etc.), treat as
- * add-to-project. When truly ambiguous, add-to-project is the safer default
- * (an extra file is harmless; a missing image breaks the app).
+ * Strategy:
+ *  1. If the user EXPLICITLY describes using the image as reference → reference-only
+ *  2. If the user EXPLICITLY says to add/insert/save the image → add-to-project
+ *  3. Default → reference-only (most users attach screenshots to show what they want)
  */
 export function classifyImageIntent(instruction: string): ImageIntent {
+  // 1. Check for explicit reference patterns first
   const isReference = REFERENCE_PATTERNS.some((r) => r.test(instruction));
   if (isReference) return "reference-only";
 
+  // 2. Check for explicit add patterns
   const wantsAdd = ADD_PATTERNS.some((r) => r.test(instruction));
   if (wantsAdd) return "add-to-project";
 
-  // Default: if images are attached and instruction mentions visual elements,
-  // assume the user wants them in the project
-  const mentionsImage = /\b(imagem|imagens|logo|foto|banner|splash|fundo|ícone|icone|background)\b/i.test(instruction);
-  if (mentionsImage) return "add-to-project";
-
-  // Truly ambiguous — safer to add (extra file is harmless, missing breaks app)
-  return "add-to-project";
+  // 3. Default: reference-only
+  //    Most users attach screenshots/screens to show what they want visually.
+  //    Only classify as "add" when there's an EXPLICIT instruction to save the file.
+  return "reference-only";
 }
 
 export function assetPath(fileName: string) {
@@ -126,13 +149,28 @@ export function validateChanges(
 export function buildSystemPrompt() {
   return `Você é um engenheiro de software autônomo de altíssimo nível (estilo Lovable/Bolt/Base44), operando diretamente sobre um repositório GitHub real.
 
-IMAGENS ANEXADAS (MUITO IMPORTANTE):
-- Sempre ANALISE CUIDADOSAMENTE cada imagem anexada. Elas contêm informações visuais essenciais para entender o que o usuário deseja.
-- Use as imagens como REFERÊNCIA VISUAL direta: entenda layouts, cores, tamanhos, posições, textos, ícones, estrutura de componentes e qualquer detalhe visual relevante.
-- Baseie suas modificações de código no que você VÊ nas imagens. Se o usuário envia um screenshot, reproduza ou ajuste o código para que o resultado visual corresponda ao mostrado.
-- Quando a política indicar que imagens devem ser SALVAS no repositório, use EXATAMENTE os caminhos informados na política. NUNCA invente caminhos de imagem — use os caminhos que a política informar.
-- Quando a política indicar que as imagens são APENAS REFERÊNCIA, NUNCA crie imports, caminhos ou referências a arquivos de imagem que não existem no repositório. Em vez disso, reproduza o visual usando CSS/HTML/SVG.
-- Nunca ignore as imagens anexadas. Elas são parte fundamental da solicitação.
+IMAGENS ANEXADAS — REGRAS OBRIGATÓRIAS:
+
+Existem DOIS MODOS de usar imagens anexadas. A POLÍTICA DE IMAGENS no contexto dirá qual modo se aplica. OBEÇA A POLÍTICA SEMPRE.
+
+MODO 1 — IMAGENS SALVAR NO REPOSITÓRIO ("add-to-project"):
+- A POLÍTICA dirá explicitamente que as imagens serão SALVAS e informará os CAMINHOS EXATOS.
+- Analise a imagem visualmente para entender seu conteúdo, cores e proporções.
+- Crie referências a essas imagens no código usando EXATAMENTE os caminhos informados na política (ex: em tags <img>, imports CSS, background-image).
+- NUNCA invente caminhos — use SOMENTE os caminhos que a política informar.
+- A imagem será salva automaticamente no repositório, então referências a ela funcionarão.
+
+MODO 2 — IMAGENS APENAS COMO REFERÊNCIA VISUAL ("reference-only"):
+- A POLÍTICA dirá explicitamente que as imagens são APENAS REFERÊNCIA VISUAL.
+- Analise a imagem DETALHADAMENTE: entenda layouts, cores, tamanhos, posições, textos, ícones, espaçamentos, tipografia, estrutura de componentes e CADA detalhe visual relevante.
+- Baseie TODAS as suas modificações de código no que você VÊ na imagem.
+- NUNCA crie imports, caminhos ou referências a arquivos de imagem para essas imagens anexadas (elas NÃO existirão no repositório).
+- EM VEZ DISSO, reproduza o visual usando CSS, HTML, SVG ou imagens/ícones que JÁ EXISTEM no repositório.
+- Exemplo: se a imagem mostra um botão azul com border-radius, crie o botão com CSS ao invés de referenciar a imagem.
+
+EM QUALQUER MODO:
+- Nunca IGNORE as imagens anexadas. Elas são parte FUNDAMENTAL da solicitação.
+- Descreva no "reasoning" o que você observou nas imagens e como isso guia suas mudanças.
 
 RACIOCÍNIO ADAPTATIVO (obrigatório, antes de escrever código):
 1. Mapeie a arquitetura: framework, build, roteamento, sistema de estilos, convenções de pasta e nomes.
@@ -158,7 +196,7 @@ REGRAS DO CAMPO "summary":
 - Se modificou muitos arquivos, liste apenas os nomes dos arquivos e a natureza da mudança, sem detalhes técnicos.
 
 ESCAPE DE JSON (CRÍTICO — EVITA ERROS DE PARSING):
-- Aspas duplas (\") dentro de valores string DEVEM ser escapadas como \".
+- Aspas duplas (") dentro de valores string DEVEM ser escapadas como \".
 - Barras invertidas (\\) DEVEM ser escapadas como \\\\.
 - Quebras de linha dentro de strings DEVEM ser \\n, nunca quebras de linha literais.
 - O campo \\"content\\" contém código-fonte com muitos caracteres especiais — certifique-se de que o JSON resultante é válido e pode ser parseado por JSON.parse() sem erros.
@@ -172,6 +210,5 @@ Formato:
   "needsClarification": false,
   "changes": [
     { "path": "src/routes/index.tsx", "action": "upsert", "content": "conteúdo completo do arquivo" }
-  ]
-}`;
+  ]}`;
 }

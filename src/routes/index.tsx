@@ -22,7 +22,6 @@ import {
   User,
   Bot,
   Download,
-  Eye,
   EyeOff,
   ExternalLink,
   Monitor,
@@ -30,6 +29,8 @@ import {
   Globe,
   RefreshCw,
   X,
+  ImagePlus,
+  Eye,
 } from "lucide-react";
 
 import { connectRepo } from "@/lib/agent.functions";
@@ -324,6 +325,7 @@ function Home() {
   const [repo, setRepo] = useState<RepoState | null>(null);
   const [instruction, setInstruction] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [imageIntent, setImageIntent] = useState<"reference-only" | "add-to-project">("reference-only");
   const [dragging, setDragging] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [showRepoInfo, setShowRepoInfo] = useState(false);
@@ -464,6 +466,9 @@ function Home() {
       setAttachments([]);
       if (fileInput.current) fileInput.current.value = "";
 
+      // Reset image intent to default after sending
+      setImageIntent("reference-only");
+
       // Start streaming
       setIsStreaming(true);
       setStreamPhase("snapshot");
@@ -484,6 +489,9 @@ function Home() {
             instruction: prompt,
             attachments: currentAttachments.map(({ name, mime, dataUrl }) => ({ name, mime, dataUrl })),
             history,
+            ...(currentAttachments.some((a) => a.mime?.startsWith("image/"))
+              ? { imageIntent }
+              : {}),
           }),
           signal: abort.signal,
         });
@@ -1158,6 +1166,37 @@ function Home() {
               attachments={attachments}
               onRemove={(name) => setAttachments((p) => p.filter((x) => x.name !== name))}
             />
+
+            {/* Image intent selector — only shown when images are attached */}
+            {attachments.some((a) => a.mime?.startsWith("image/")) && (
+              <div className="mb-2.5 flex items-center gap-2">
+                <span className="shrink-0 text-[11px] font-medium text-muted-foreground">Imagens:</span>
+                <button
+                  type="button"
+                  onClick={() => setImageIntent("reference-only")}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-all ${
+                    imageIntent === "reference-only"
+                      ? "border-primary/50 bg-primary/10 text-primary shadow-sm shadow-primary/10"
+                      : "border-border/60 bg-background/60 text-muted-foreground hover:border-border hover:text-foreground"
+                  }`}
+                >
+                  <Eye className="h-3 w-3" />
+                  Referência visual
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImageIntent("add-to-project")}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-all ${
+                    imageIntent === "add-to-project"
+                      ? "border-primary/50 bg-primary/10 text-primary shadow-sm shadow-primary/10"
+                      : "border-border/60 bg-background/60 text-muted-foreground hover:border-border hover:text-foreground"
+                  }`}
+                >
+                  <ImagePlus className="h-3 w-3" />
+                  Salvar no projeto
+                </button>
+              </div>
+            )}
 
             <div
               className={`flex items-end gap-2 rounded-2xl border bg-background/60 px-2 py-2 backdrop-blur-md transition-all sm:gap-2.5 sm:px-3 sm:py-2.5 ${dragging ? "border-primary/50 shadow-lg shadow-primary/10" : "border-border/40 focus-within:border-primary/40 focus-within:shadow-lg focus-within:shadow-primary/5"}`}
