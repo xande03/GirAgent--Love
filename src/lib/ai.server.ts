@@ -15,8 +15,69 @@ function getLlmConfig() {
   const key = process.env["DEEPSEEK_API_KEY"];
   const baseUrl = (process.env["DEEPSEEK_BASE_URL"] ?? "https://api.b.ai/v1").replace(/\/$/, "");
   const model = process.env["DEEPSEEK_MODEL"] ?? "deepseek-v4-flash";
+  const visionModel = process.env["VISION_MODEL"] ?? "";
   if (!key) throw new Error("DEEPSEEK_API_KEY não configurada no servidor. Defina a variável de ambiente e reinicie.");
-  return { key, baseUrl, model };
+  return { key, baseUrl, model, visionModel };
+}
+
+/**
+ * Describes an image using a vision-capable model (configured via VISION_MODEL env var).
+ * Returns a detailed textual description of the image content.
+ * This allows text-only models to "see" images by reading the description.
+ */
+export async function describeImage(
+  dataUrl: string,
+  fileName: string,
+): Promise<string> {
+  const { key, baseUrl, visionModel } = getLlmConfig();
+  if (!visionModel) {
+    throw new Error(
+      "VISION_MODEL não configurada. Para processar imagens, defina a variável de ambiente VISION_MODEL com um modelo que suporte visão (ex: deepseek-vl2, gpt-4o-mini, claude-3-haiku).",
+    );
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+
+  try {
+    console.log(`[describeImage] Descrevendo "${fileName}" com modelo de visão "${visionModel}"...`);
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: visionModel,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: 'Descreva esta imagem em PORTUGUÊS com máximo detalhe: layout, cores exatas (hex quando possível), textos, ícones, espaçamentos, tipografia (font-weight, font-size estimados), sombras, gradientes, bordas, tamanhos relativos, posições, e todos os elementos visuais. Seja específico o suficiente para que um desenvolvedor possa reproduzir o visual fielmente usando HTML/CSS.',
+              },
+              { type: "image_url", image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+        max_tokens: 2000,
+        temperature: 0.1,
+      }),
+    });
+
+    if (!res.ok) {
+      const raw = await res.text();
+      const errMsg = raw.slice(0, 400);
+      throw new Error(`Vision model "${visionModel}" retornou HTTP ${res.status}: ${errMsg}`);
+    }
+
+    const data = await res.json();
+    const description = data?.choices?.[0]?.message?.content ?? "";
+    if (!description) throw new Error(`Vision model "${visionModel}" retornou descrição vazia.`);
+    console.log(`[describeImage] Descrição de "${fileName}" (${description.length} chars) obtida com sucesso.`);
+    return description;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /**
@@ -89,6 +150,8 @@ export async function chat(messages: ChatMessage[], opts?: { temperature?: numbe
     return await send(messages);
   } catch (err) {
     if (!hasImages) throw err;
+    const errMsg = (err as Error).message ?? String(err);
+    console.warn(`[chat] Modelo rejeitou requisição com imagens (fallback para texto): ${errMsg}`);
     const flattened = messages.map((m) => ({
       role: m.role,
       content: Array.isArray(m.content)
@@ -96,7 +159,7 @@ export async function chat(messages: ChatMessage[], opts?: { temperature?: numbe
             .map((b) =>
               b.type === "text"
                 ? b.text
-                : "[imagem de referência anexada — descrição visual indisponível neste modelo]",
+                : "[imagem anexada — o modelo não conseguiu processar esta imagem]",
             )
             .join("\n\n")
         : m.content,
@@ -111,7 +174,7 @@ export async function chat(messages: ChatMessage[], opts?: { temperature?: numbe
  */
 export async function* chatStream(
   messages: ChatMessage[],
-  opts?: { temperature?: number; maxTokens?: number },
+  opts?: { temperature?: number; maxTokens?: number; onImageFallback?: (reason: string) => void },
 ): AsyncGenerator<string, void, undefined> {
   const { key, baseUrl, model } = getLlmConfig();
   const hasImages = messages.some((m) => Array.isArray(m.content));
@@ -206,6 +269,12 @@ export async function* chatStream(
       try {
         yield* sendStream(messages);
       } catch (err) {
+        const errMsg = (err as Error).message ?? String(err);
+        console.warn(`[chatStream] Modelo rejeitou requisição com imagens (fallback para texto): ${errMsg}`);
+
+        // Notify caller that images were stripped
+        opts?.onImageFallback?.(errMsg);
+
         // Reset timeout for the fallback attempt so it gets a full window
         clearTimeout(timeout);
         timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -218,7 +287,7 @@ export async function* chatStream(
                 .map((b) =>
                   b.type === "text"
                     ? b.text
-                    : "[imagem de referência anexada — descrição visual indisponível neste modelo]",
+                    : "[imagem anexada — o modelo não conseguiu processar esta imagem, ela será descrita textualmente abaixo se possível]",
                 )
                 .join("\n\n")
             : m.content,

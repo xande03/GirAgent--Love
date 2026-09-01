@@ -44,7 +44,7 @@ export async function handleAgentStream(request: Request): Promise<Response> {
 
   const { parseRepoUrl, getCachedSnapshot, setSnapshotCache, invalidateSnapshotCache, commitToMain } =
     await import("./github.server");
-  const { chatStream, extractJson } = await import("./ai.server");
+  const { chatStream, extractJson, describeImage } = await import("./ai.server");
   const { classifyImageIntent, buildSystemPrompt, assetPath, sanitizeInstruction, validateChanges, validateChangesConsistency } =
     await import("./agent-core");
 
@@ -71,6 +71,12 @@ export async function handleAgentStream(request: Request): Promise<Response> {
         const images = body.attachments.filter((a) => a.mime.startsWith("image/"));
         // Use explicit client intent if provided, otherwise fall back to heuristic
         const intent: ImageIntent = body.imageIntent ?? classifyImageIntent(instruction);
+
+        // Log image details for debugging
+        if (images.length > 0) {
+          console.log(`[agent-stream] ${images.length} imagem(ns) recebida(s):`, images.map((i) => `${i.name} (${i.mime}, ~${Math.round((i.dataUrl.length * 3) / 4 / 1024)}KB)`).join(', '));
+          console.log(`[agent-stream] Intent de imagem: ${intent}`);
+        }
 
         const repoContext = [
           `Repositório: ${snap.owner}/${snap.repo} (branch de trabalho: main)`,
@@ -108,7 +114,7 @@ Foram anexadas ${images.length} imagem(ns) que SERÃO SALVAS no repositório.
 Os caminhos exatos de cada imagem (USE EXATAMENTE ESTES):
 ${images.map((img) => `- ${assetPath(img.name)}`).join("\n")}
 Regras:
-- Analise a imagem visualmente e entenda seu conteúdo.
+- Analise a descrição da imagem abaixo e entenda seu conteúdo.
 - Crie referências a essas imagens no código usando EXATAMENTE os caminhos acima.
 - Pode usar em tags <img src="...">, imports CSS, background-image: url(...), etc.
 - NUNCA invente ou assuma outros caminhos de imagem.
@@ -116,11 +122,46 @@ Regras:
               : `MODO: APENAS REFERÊNCIA VISUAL ("reference-only").
 Foram anexadas ${images.length} imagem(ns) como REFERÊNCIA VISUAL.
 Regras:
-- Analise a imagem DETALHADAMENTE: layouts, cores, posições, textos, ícones, espaçamentos, tipografia, sombras, gradientes, bordas, tamanhos.
-- Baseie TODAS as modificações no que você VÊ na imagem.
+- Analise a descrição detalhada da imagem abaixo: layouts, cores, posições, textos, ícones, espaçamentos, tipografia, sombras, gradientes, bordas, tamanhos.
+- Baseie TODAS as modificações no que está descrito.
 - NUNCA crie imports, caminhos ou referências a arquivos de imagem para essas imagens (elas NÃO existirão no repositório).
 - EM VEZ DISSO, reproduza o visual usando CSS, HTML, SVG, inline styles, emojis ou assets que JÁ EXISTEM no repositório.
-- Exemplo: se a imagem mostra um botão azul arredondado, crie o botão com classes CSS — NÃO tente importar a imagem.`;
+- Exemplo: se a descrição menciona um botão azul arredondado, crie o botão com classes CSS — NÃO tente importar a imagem.`;
+
+        // ── Vision model pre-processing ──
+        // If VISION_MODEL is set, describe images with it BEFORE sending to the main model.
+        // This allows text-only models (like deepseek-v4-flash) to "see" images via descriptions.
+        let imageDescriptions: string[] = [];
+        let usedVisionPreprocessing = false;
+        const visionModel = process.env["VISION_MODEL"];
+
+        if (images.length > 0 && visionModel) {
+          console.log(`[agent-stream] VISION_MODEL="${visionModel}" configurada. Descrevendo ${images.length} imagem(ns) com modelo de visão...`);
+
+          imageDescriptions = await Promise.all(
+            images.map(async (img) => {
+              try {
+                const desc = await describeImage(img.dataUrl, img.name);
+                return `--- DESCRIÇÃO DA IMAGEM "${img.name}" (${img.mime}) ---\n${desc}\n--- FIM DA DESCRIÇÃO ---`;
+              } catch (visionErr) {
+                const msg = (visionErr as Error).message;
+                console.error(`[agent-stream] Falha ao descrever imagem "${img.name}": ${msg}`);
+                return `--- IMAGEM "${img.name}" ---\n(Falha ao descrever: ${msg.slice(0, 200)})\n--- FIM ---`;
+              }
+            }),
+          );
+
+          usedVisionPreprocessing = true;
+          console.log(`[agent-stream] Descrições de ${imageDescriptions.length} imagem(ns) obtidas. Total: ${imageDescriptions.reduce((s, d) => s + d.length, 0)} chars.`);
+        }
+
+        // Build user message blocks
+        // If vision pre-processing was used, include descriptions in text (no image_url blocks)
+        // If not, include image_url blocks for the main model to process directly
+        const visionDescriptionsText =
+          imageDescriptions.length > 0
+            ? `\n\nDESCRIÇÕES DAS IMAGENS ANEXADAS (geradas por modelo de visão "${visionModel}"):\n${imageDescriptions.join("\n\n")}`
+            : "";
 
         const userBlocks: ContentBlock[] = [
           {
@@ -130,6 +171,7 @@ Regras:
               attachmentNotes,
               "",
               `POLÍTICA DE IMAGENS: ${imagePolicy}`,
+              visionDescriptionsText,
               "",
               body.history.length
                 ? "Histórico da conversa:\n" +
@@ -141,19 +183,45 @@ Regras:
               .filter(Boolean)
               .join("\n"),
           },
-          ...images.map<ContentBlock>((i) => ({ type: "image_url", image_url: { url: i.dataUrl } })),
+          // Only include image_url blocks if vision pre-processing was NOT used
+          // (i.e., let the main model try to process images directly)
+          ...(usedVisionPreprocessing
+            ? []
+            : images.map<ContentBlock>((i) => ({ type: "image_url", image_url: { url: i.dataUrl } }))),
         ];
 
         // Phase 2: Stream LLM response
         send("phase", JSON.stringify({ phase: "thinking" }));
 
+        // Track whether images were stripped by the LLM API (model doesn't support vision)
+        let imagesStripped = false;
+        let imageFallbackReason = "";
+
         let fullText = "";
         for await (const chunk of chatStream([
           { role: "system", content: buildSystemPrompt() },
           { role: "user", content: userBlocks },
-        ])) {
+        ], {
+          onImageFallback: (reason) => {
+            imagesStripped = true;
+            imageFallbackReason = reason;
+            console.warn(`[agent-stream] Imagens removidas pelo fallback do LLM: ${reason}`);
+          },
+        })) {
           fullText += chunk;
           send("chunk", JSON.stringify({ text: chunk }));
+        }
+
+        // If images were stripped, warn the user immediately
+        if (imagesStripped && images.length > 0) {
+          console.error(`[agent-stream] O modelo '${process.env["DEEPSEEK_MODEL"] ?? "deepseek-v4-flash"}' NÃO suporta imagens. Imagens foram removidas antes do envio ao LLM.`);
+          send(
+            "warning",
+            JSON.stringify({
+              message: `O modelo de IA atual (DeepSeek V4 Flash) não conseguiu processar as ${images.length} imagem(ns) anexada(s). A solicitação foi enviada sem as imagens — o agente não pôde vê-las. Motivo: ${imageFallbackReason.slice(0, 200)}`,
+              imagesDropped: true,
+            }),
+          );
         }
 
         // Parse the complete response
@@ -216,6 +284,25 @@ Regras:
 
         // Validate changes (security + size)
         validateChanges(parsed.changes);
+
+        // If we had images but they were stripped, the response is likely wrong — warn clearly
+        if (imagesStripped && images.length > 0 && intent === "add-to-project") {
+          console.error("[agent-stream] Imagens para 'add-to-project' foram removidas — commit cancelado.");
+          send(
+            "result",
+            JSON.stringify({
+              applied: false,
+              reasoning: parsed.reasoning ?? "",
+              summary: `**Imagens não puderam ser processadas.** O modelo atual (DeepSeek V4 Flash) não suporta recebimento de imagens. As ${images.length} imagem(ns) anexada(s) não foram enviadas ao agente.\n\n**Solução:** Descreva textualmente o que deseja (ex: "crie um logo azul circular com texto 'Xerife' em branco") em vez de enviar a imagem.\n\nMotivo técnico: ${imageFallbackReason.slice(0, 300)}`,
+              imageIntent: intent,
+              commit: null,
+              changedPaths: [],
+              sanitized: flagged,
+            }),
+          );
+          send("phase", JSON.stringify({ phase: "done" }));
+          return;
+        }
 
         // Validate code consistency (truncation, broken imports, unbalanced brackets)
         const consistencyWarnings = validateChangesConsistency(parsed.changes, snap.paths);

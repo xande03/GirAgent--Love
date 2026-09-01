@@ -543,6 +543,16 @@ function Home() {
               try {
                 resultData = JSON.parse(eventData) as AgentResult;
               } catch {}
+            } else if (eventType === "warning") {
+              try {
+                const { message, imagesDropped } = JSON.parse(eventData);
+                if (imagesDropped) {
+                  setTurns((t) => [
+                    ...t,
+                    { role: "assistant", content: `⚠️ **Atenção:** ${message}`, error: false },
+                  ]);
+                }
+              } catch {}
             } else if (eventType === "error") {
               try {
                 const { message } = JSON.parse(eventData);
@@ -564,6 +574,16 @@ function Home() {
           if (eventType === "result") {
             try {
               resultData = JSON.parse(eventData) as AgentResult;
+            } catch {}
+          } else if (eventType === "warning") {
+            try {
+              const { message, imagesDropped } = JSON.parse(eventData);
+              if (imagesDropped) {
+                setTurns((t) => [
+                  ...t,
+                  { role: "assistant", content: `⚠️ **Atenção:** ${message}`, error: false },
+                ]);
+              }
             } catch {}
           } else if (eventType === "error") {
             try {

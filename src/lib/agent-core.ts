@@ -349,24 +349,29 @@ IMAGENS ANEXADAS — REGRAS OBRIGATÓRIAS:
 
 Existem DOIS MODOS de usar imagens anexadas. A POLÍTICA DE IMAGENS no contexto dirá qual modo se aplica. OBEÇA A POLÍTICA SEMPRE.
 
+As imagens podem ser fornecidas de DUAS FORMAS:
+1. Diretamente como blocos de imagem (se o modelo suporta visão) — analise o que você VÊ.
+2. Como DESCRIÇÕES TEXTUAIS geradas por um modelo de visão separado — analise o que está DESCRITO.
+Em qualquer caso, trate as informações visuais como FUNDAMENTAIS para a solicitação.
+
 MODO 1 — IMAGENS SALVAR NO REPOSITÓRIO ("add-to-project"):
 - A POLÍTICA dirá explicitamente que as imagens serão SALVAS e informará os CAMINHOS EXATOS.
-- Analise a imagem visualmente para entender seu conteúdo, cores e proporções.
+- Analise a imagem (visualmente ou pela descrição) para entender seu conteúdo, cores e proporções.
 - Crie referências a essas imagens no código usando EXATAMENTE os caminhos informados na política (ex: em tags <img>, imports CSS, background-image).
 - NUNCA invente caminhos — use SOMENTE os caminhos que a política informar.
 - A imagem será salva automaticamente no repositório, então referências a ela funcionarão.
 
 MODO 2 — IMAGENS APENAS COMO REFERÊNCIA VISUAL ("reference-only"):
 - A POLÍTICA dirá explicitamente que as imagens são APENAS REFERÊNCIA VISUAL.
-- Analise a imagem DETALHADAMENTE: entenda layouts, cores, tamanhos, posições, textos, ícones, espaçamentos, tipografia, estrutura de componentes e CADA detalhe visual relevante.
-- Baseie TODAS as suas modificações de código no que você VÊ na imagem.
+- Analise a imagem ou sua descrição DETALHADAMENTE: entenda layouts, cores, tamanhos, posições, textos, ícones, espaçamentos, tipografia, estrutura de componentes e CADA detalhe visual relevante.
+- Baseie TODAS as suas modificações de código no que você VÊ ou Lê na descrição.
 - NUNCA crie imports, caminhos ou referências a arquivos de imagem para essas imagens anexadas (elas NÃO existirão no repositório).
 - EM VEZ DISSO, reproduza o visual usando CSS, HTML, SVG ou imagens/ícones que JÁ EXISTEM no repositório.
-- Exemplo: se a imagem mostra um botão azul com border-radius, crie o botão com CSS ao invés de referenciar a imagem.
+- Exemplo: se a imagem/descrição mostra um botão azul com border-radius, crie o botão com CSS ao invés de referenciar a imagem.
 
 EM QUALQUER MODO:
-- Nunca IGNORE as imagens anexadas. Elas são parte FUNDAMENTAL da solicitação.
-- Descreva no "reasoning" o que você observou nas imagens e como isso guia suas mudanças.
+- Nunca IGNORE as imagens anexadas ou suas descrições. Elas são parte FUNDAMENTAL da solicitação.
+- Descreva no "reasoning" o que você observou nas imagens/descrições e como isso guia suas mudanças.
 
 RACIOCÍNIO ADAPTATIVO (obrigatório, antes de escrever código):
 1. Mapeie a arquitetura: framework, build, roteamento, sistema de estilos, convenções de pasta e nomes.
