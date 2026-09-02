@@ -71,7 +71,7 @@ export const runAgent = createServerFn({ method: "POST" })
       invalidateSnapshotCache,
     } = await import("./github.server");
     const { chat, extractJson } = await import("./ai.server");
-    const { classifyImageIntent, buildSystemPrompt, assetPath, sanitizeInstruction, validateChanges } = await import("./agent-core");
+    const { classifyImageIntent, buildSystemPrompt, assetPath, sanitizeInstruction, validateChanges, analyzeProjectContext } = await import("./agent-core");
 
     // Sanitize instruction
     const { clean: instruction, flagged } = sanitizeInstruction(data.instruction);
@@ -146,8 +146,11 @@ Analise-as detalhadamente como REFERÊNCIA VISUAL para entender o que o usuário
       ...images.map<ContentBlock>((i) => ({ type: "image_url", image_url: { url: i.dataUrl } })),
     ];
 
+    // Analyze project context
+    const projectAnalysis = analyzeProjectContext(snap.files);
+
     const answer = await chat([
-      { role: "system", content: buildSystemPrompt() },
+      { role: "system", content: buildSystemPrompt({ analysis: projectAnalysis }) },
       { role: "user", content: userBlocks },
     ]);
 

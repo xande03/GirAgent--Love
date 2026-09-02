@@ -289,3 +289,42 @@ export async function commitToMain(
     branch,
   };
 }
+
+/**
+ * Reverts the last commit on the default branch.
+ * Returns the SHA of the revert commit.
+ */
+export async function revertLastCommit(
+  token: string,
+  ref: RepoRef,
+  branch = "main",
+): Promise<{ sha: string; url: string; branch: string }> {
+  const head = await gh(token, `/repos/${ref.owner}/${ref.repo}/git/ref/heads/${branch}`);
+  const headSha = head.object.sha as string;
+  const headCommit = await gh(token, `/repos/${ref.owner}/${ref.repo}/git/commits/${headSha}`);
+  const parentSha = (headCommit.parents?.[0]?.sha) as string | undefined;
+  if (!parentSha) {
+    throw new Error("Não é possível reverter — este é o commit inicial do repositório.");
+  }
+
+  // Create a revert commit with the parent as the new head
+  const commit = await gh(token, `/repos/${ref.owner}/${ref.repo}/git/commits`, {
+    method: "POST",
+    body: JSON.stringify({
+      message: `revert: ${headCommit.message?.slice(0, 100) ?? "último commit"}`,
+      tree: headCommit.tree.sha,
+      parents: [parentSha],
+    }),
+  });
+
+  await gh(token, `/repos/${ref.owner}/${ref.repo}/git/refs/heads/${branch}`, {
+    method: "PATCH",
+    body: JSON.stringify({ sha: commit.sha, force: false }),
+  });
+
+  return {
+    sha: commit.sha,
+    url: `https://github.com/${ref.owner}/${ref.repo}/commit/${commit.sha}`,
+    branch,
+  };
+}

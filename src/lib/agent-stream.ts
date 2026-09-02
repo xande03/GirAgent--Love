@@ -45,8 +45,11 @@ export async function handleAgentStream(request: Request): Promise<Response> {
   const { parseRepoUrl, getCachedSnapshot, setSnapshotCache, invalidateSnapshotCache, commitToMain } =
     await import("./github.server");
   const { chatStream, extractJson, describeImage } = await import("./ai.server");
-  const { classifyImageIntent, buildSystemPrompt, assetPath, sanitizeInstruction, validateChanges, validateChangesConsistency } =
+  const { classifyImageIntent, buildSystemPrompt, assetPath, sanitizeInstruction, validateChanges, analyzeProjectContext } =
     await import("./agent-core");
+  const { getVfs } = await import("./virtual-fs");
+  const { DependencyTracker, ComponentRegistry } = await import("./dependency-tracker");
+  const { runValidationPipeline, buildValidationFeedback } = await import("./validation-pipeline");
 
   const { clean: instruction, flagged } = sanitizeInstruction(body.instruction);
   const ref = parseRepoUrl(body.repoUrl);
@@ -69,10 +72,32 @@ export async function handleAgentStream(request: Request): Promise<Response> {
         }
 
         const images = body.attachments.filter((a) => a.mime.startsWith("image/"));
-        // Use explicit client intent if provided, otherwise fall back to heuristic
         const intent: ImageIntent = body.imageIntent ?? classifyImageIntent(instruction);
 
-        // Log image details for debugging
+        // ── Auto-analyze project context ──
+        console.log(`[agent-stream] Analisando contexto do projeto (${snap.files.length} arquivos)...`);
+        const projectAnalysis = analyzeProjectContext(snap.files);
+        console.log(`[agent-stream] Análise: ${projectAnalysis.framework} | ${projectAnalysis.styling} | ${projectAnalysis.routing}`);
+
+        // ── Virtual File System ──
+        const vfs = getVfs(ref.owner, ref.repo);
+        if (vfs.getActionCount() === 0) {
+          vfs.loadSnapshot(snap.files, snap.headSha);
+          console.log(`[agent-stream] VFS inicializado com ${snap.files.length} arquivos (SHA: ${snap.headSha.slice(0, 8)})`);
+        }
+
+        // ── Dependency Tracker & Component Registry ──
+        const depTracker = new DependencyTracker();
+        const compRegistry = new ComponentRegistry();
+        const currentFiles = vfs.toFileArray();
+        depTracker.buildGraph(currentFiles);
+        compRegistry.build(currentFiles);
+        const componentRegSummary = compRegistry.getPromptSummary();
+        console.log(`[agent-stream] DepTracker: ${depTracker.getAllNodes().length} nós | CompRegistry: ${compRegistry.getAll().length} componentes`);
+
+        // ── Session History ──
+        const sessionHistory = vfs.getContextSummary();
+
         if (images.length > 0) {
           console.log(`[agent-stream] ${images.length} imagem(ns) recebida(s):`, images.map((i) => `${i.name} (${i.mime}, ~${Math.round((i.dataUrl.length * 3) / 4 / 1024)}KB)`).join(', '));
           console.log(`[agent-stream] Intent de imagem: ${intent}`);
@@ -190,8 +215,9 @@ Regras:
             : images.map<ContentBlock>((i) => ({ type: "image_url", image_url: { url: i.dataUrl } }))),
         ];
 
-        // Phase 2: Stream LLM response
+        // Phase 2: Stream LLM response (with auto-analyzed context)
         send("phase", JSON.stringify({ phase: "thinking" }));
+        console.log(`[agent-stream] Iniciando streaming com contexto analizado...`);
 
         // Track whether images were stripped by the LLM API (model doesn't support vision)
         let imagesStripped = false;
@@ -199,7 +225,12 @@ Regras:
 
         let fullText = "";
         for await (const chunk of chatStream([
-          { role: "system", content: buildSystemPrompt() },
+          { role: "system", content: buildSystemPrompt({
+            analysis: projectAnalysis,
+            componentRegistrySummary: componentRegSummary,
+            dependencySummary: depTracker.getDependencySummary(),
+            sessionHistory,
+          }) },
           { role: "user", content: userBlocks },
         ], {
           onImageFallback: (reason) => {
@@ -229,8 +260,10 @@ Regras:
         try {
           parsed = extractJson<{
             reasoning?: string;
+            plan?: string[];
             summary?: string;
             commitMessage?: string;
+            next_steps?: string[];
             needsClarification?: boolean;
             question?: string;
             changes?: { path: string; action?: "upsert" | "delete"; content?: string }[];
@@ -268,10 +301,11 @@ Regras:
             "result",
             JSON.stringify({
               applied: false,
-              reasoning: parsed.reasoning ?? "",
+              reasoning: finalParsed.reasoning ?? "",
               summary:
                 parsed.summary ??
-                "Não foi possível gerar alterações para essa solicitação. Tente reformular com mais detalhes sobre o que deseja.",
+                "Não foi possível gerar alterações. Tente reformular com mais detalhes."
+              + (parsed.plan?.length ? `\n\n**Plano:**\n${parsed.plan.map((p, i) => `${i + 1}. ${p}`).join("\n")}` : ""),
               imageIntent: intent,
               commit: null,
               changedPaths: [],
@@ -282,8 +316,116 @@ Regras:
           return;
         }
 
-        // Validate changes (security + size)
+        // Log plan if available
+        if (parsed.plan?.length) {
+          console.log(`[agent-stream] Plano do agente:`, parsed.plan);
+        }
+
+        // Validate changes (security + size) via pipeline
         validateChanges(parsed.changes);
+
+        // Run full Validation Pipeline
+        const changedPaths = finalParsed.changes!.map((c) => c.path);
+        const depSummary = depTracker.getDependencySummary(changedPaths);
+        const validationResult = runValidationPipeline({
+          changes: finalParsed.changes!,
+          repoPaths: snap.paths.map((p) => p.path),
+          projectFiles: currentFiles,
+          depTracker,
+          projectAnalysis,
+        });
+
+        if (validationResult.issues.length > 0) {
+          console.log(`[agent-stream] Validation: ${validationResult.issues.filter(i => i.severity === 'error').length} errors, ${validationResult.issues.filter(i => i.severity === 'warning').length} warnings`);
+        }
+
+        // ── FEEDBACK LOOP: auto-correção quando há erros de validação ──
+        let finalParsed = parsed;
+        const MAX_FEEDBACK_ROUNDS = 2;
+
+        if (!validationResult.passed && MAX_FEEDBACK_ROUNDS > 0) {
+          let feedback = buildValidationFeedback(validationResult);
+          console.log(`[agent-stream] Feedback Loop: validation falhou, enviando correção ao LLM...`);
+          send("phase", JSON.stringify({ phase: "validating" }));
+
+          for (let round = 1; round <= MAX_FEEDBACK_ROUNDS; round++) {
+            console.log(`[agent-stream] Feedback round ${round}/${MAX_FEEDBACK_ROUNDS}`);
+
+            let retryText = "";
+            try {
+              for await (const chunk of chatStream([
+                { role: "system", content: buildSystemPrompt({
+                  analysis: projectAnalysis,
+                  componentRegistrySummary: componentRegSummary,
+                  dependencySummary: depSummary,
+                  sessionHistory,
+                  validationFeedback: feedback,
+                }) },
+                { role: "user", content: userBlocks },
+              ])) {
+                retryText += chunk;
+              }
+
+              const retryParsed = extractJson<typeof parsed>(retryText);
+              if (!retryParsed.changes?.length) {
+                console.warn(`[agent-stream] Feedback round ${round}: sem changes, parando.`);
+                break;
+              }
+
+              // Re-validate
+              const retryResult = runValidationPipeline({
+                changes: retryParsed.changes!,
+                repoPaths: snap.paths.map((p) => p.path),
+                projectFiles: currentFiles,
+                depTracker,
+                projectAnalysis,
+              });
+
+              if (retryResult.passed) {
+                console.log(`[agent-stream] Feedback round ${round}: validação PASSOU!`);
+                finalParsed = retryParsed;
+                break;
+              }
+
+              // If still failing, update feedback for next round
+              feedback = buildValidationFeedback(retryResult);
+              finalParsed = retryParsed;
+              console.warn(`[agent-stream] Feedback round ${round}: ainda com erros, tentando mais uma vez...`);
+            } catch (retryErr) {
+              console.error(`[agent-stream] Feedback round ${round} failed:`, (retryErr as Error).message);
+              break; // Keep original parsed result
+            }
+          }
+        }
+
+        // Final validation check — if still failing, block the commit
+        if (!validationResult.passed) {
+          const finalErrors = validationResult.issues.filter((i) => i.severity === "error");
+          if (finalErrors.length > 0) {
+            console.error("[agent-stream] Código com erros de validação após feedback loop — commit cancelado.");
+            send(
+              "result",
+              JSON.stringify({
+                applied: false,
+                reasoning: finalParsed.reasoning ?? "",
+                summary: `**Código gerado com inconsistências** — commit cancelado para evitar build quebrado.\n\nErros:\n${finalErrors.map((e) => `- [${e.stage}] ${e.path}: ${e.message}`).join("\n")}\n\nTente reformular com escopo menor.`,
+                imageIntent: intent,
+                commit: null,
+                changedPaths: finalParsed.changes!.map((c) => c.path),
+                sanitized: flagged,
+                validationIssues: validationResult.issues.map((i) => `${i.severity}: ${i.message}`),
+              }),
+            );
+            send("phase", JSON.stringify({ phase: "done" }));
+            return;
+          }
+        }
+
+        // Log warnings but proceed
+        const warnings = validationResult.issues.filter((i) => i.severity === "warning");
+        if (warnings.length > 0) {
+          console.warn("[agent-stream] Non-critical warnings:", warnings.map((w) => w.message));
+        }
 
         // If we had images but they were stripped, the response is likely wrong — warn clearly
         if (imagesStripped && images.length > 0 && intent === "add-to-project") {
@@ -292,8 +434,8 @@ Regras:
             "result",
             JSON.stringify({
               applied: false,
-              reasoning: parsed.reasoning ?? "",
-              summary: `**Imagens não puderam ser processadas.** O modelo atual (DeepSeek V4 Flash) não suporta recebimento de imagens. As ${images.length} imagem(ns) anexada(s) não foram enviadas ao agente.\n\n**Solução:** Descreva textualmente o que deseja (ex: "crie um logo azul circular com texto 'Xerife' em branco") em vez de enviar a imagem.\n\nMotivo técnico: ${imageFallbackReason.slice(0, 300)}`,
+              reasoning: finalParsed.reasoning ?? "",
+              summary: `**Imagens não puderam ser processadas.** O modelo atual não suporta recebimento de imagens. As ${images.length} imagem(ns) anexada(s) não foram enviadas ao agente.\n\n**Solução:** Descreva textualmente o que deseja em vez de enviar a imagem.\n\nMotivo técnico: ${imageFallbackReason.slice(0, 300)}`,
               imageIntent: intent,
               commit: null,
               changedPaths: [],
@@ -304,36 +446,7 @@ Regras:
           return;
         }
 
-        // Validate code consistency (truncation, broken imports, unbalanced brackets)
-        const consistencyWarnings = validateChangesConsistency(parsed.changes, snap.paths);
-        const criticalWarnings = consistencyWarnings.filter((w) =>
-          /truncad|incompleto|desbalancead|não existe/i.test(w),
-        );
-
-        if (criticalWarnings.length > 0) {
-          console.error("[agent-stream] Code consistency check failed:", criticalWarnings);
-          send(
-            "result",
-            JSON.stringify({
-              applied: false,
-              reasoning: parsed.reasoning ?? "",
-              summary: `**Código gerado com inconsistências detectadas** — commit cancelado para evitar build quebrado.\n\nProblemas encontrados:\n${criticalWarnings.map((w) => `- ${w}`).join("\n")}\n\nTente reformular a solicitação de forma mais específica ou com escopo menor.`,
-              imageIntent: intent,
-              commit: null,
-              changedPaths: parsed.changes!.map((c) => c.path),
-              sanitized: flagged,
-            }),
-          );
-          send("phase", JSON.stringify({ phase: "done" }));
-          return;
-        }
-
-        // Log non-critical warnings but proceed
-        if (consistencyWarnings.length > 0) {
-          console.warn("[agent-stream] Non-critical consistency warnings:", consistencyWarnings);
-        }
-
-        const changes = parsed.changes.map((c) =>
+        const changes = finalParsed.changes!.map((c) =>
           c.action === "delete"
             ? ({ path: c.path, action: "delete" as const })
             : ({ path: c.path, action: "upsert" as const, content: c.content ?? "" }),
@@ -364,7 +477,7 @@ Regras:
               body.token,
               ref,
               changes as never,
-              parsed.commitMessage?.slice(0, 200) || `agente: ${instruction.slice(0, 60)}`,
+              finalParsed.commitMessage?.slice(0, 200) || `agente: ${instruction.slice(0, 60)}`,
               snap.branch,
             );
             commitError = null;
@@ -386,9 +499,9 @@ Regras:
             "result",
             JSON.stringify({
               applied: false,
-              reasoning: parsed.reasoning ?? "",
-              summary: `As alterações foram geradas com sucesso, mas **não foi possível commitar** no GitHub após ${maxRetries} tentativas.\n\nErro: ${commitError}\n\nTente novamente — o agente vai reenviar as mudanças.`,
-              report: buildReport(parsed.changes!, parsed.summary),
+              reasoning: finalParsed.reasoning ?? "",
+              summary: `As alterações foram geradas, mas **não foi possível commitar** no GitHub após ${maxRetries} tentativas.\n\nErro: ${commitError}\n\nTente novamente.`,
+              report: buildReport(finalParsed.changes!, finalParsed.summary),
               imageIntent: intent,
               commit: null,
               changedPaths: changes.map((c) => c.path),
@@ -399,13 +512,24 @@ Regras:
           return;
         }
 
-        send(
+                // ── Update VFS after successful changes ──
+        const impactedDeps = depTracker.getImpactedFiles(changes.map((c) => c.path));
+        vfs.applyChanges(changes, {
+          instruction,
+          afterSha: commitResult?.sha,
+          impactedDeps,
+        });
+        console.log(`[agent-stream] VFS atualizado: ${vfs.getActionCount()} ações totais`);
+
+send(
           "result",
           JSON.stringify({
             applied: true,
-            reasoning: parsed.reasoning ?? "",
-            summary: parsed.summary ?? "Alterações aplicadas.",
-            report: buildReport(parsed.changes!, parsed.summary),
+            reasoning: finalParsed.reasoning ?? "",
+            plan: finalParsed.plan ?? [],
+            nextSteps: finalParsed.next_steps ?? [],
+            summary: finalParsed.summary ?? "Alterações aplicadas.",
+            report: buildReport(finalParsed.changes!, finalParsed.summary),
             imageIntent: intent,
             commit: commitResult,
             changedPaths: changes.map((c) => c.path),

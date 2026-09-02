@@ -27,6 +27,12 @@ const streamMiddleware = createMiddleware().server(async ({ request, next }) => 
     return handleAgentStream(request);
   }
 
+  // Revert last commit
+  if (url.pathname === "/api/rollback" && request.method === "POST") {
+    const { handleRollback } = await import("./lib/rollback");
+    return handleRollback(request);
+  }
+
   // Download repo as ZIP
   if (url.pathname === "/api/download-repo" && request.method === "POST") {
     const { handleDownloadRepo } = await import("./lib/download-repo");

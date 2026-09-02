@@ -200,11 +200,13 @@ type Turn = {
 
 type RepoState = Awaited<ReturnType<typeof connectRepo>>;
 
-type StreamPhase = "snapshot" | "thinking" | "committing" | "done";
+type StreamPhase = "snapshot" | "thinking" | "validating" | "committing" | "done";
 
 type AgentResult = {
   applied: boolean;
   reasoning: string;
+  plan?: string[];
+  nextSteps?: string[];
   summary: string;
   report?: string;
   imageIntent: "add-to-project" | "reference-only";
@@ -216,6 +218,7 @@ type AgentResult = {
 const PHASE_LABELS: Record<StreamPhase, string> = {
   snapshot: "Lendo repositório...",
   thinking: "Analisando e gerando mudanças...",
+  validating: "Validando código...",
   committing: "Aplicando e comitando...",
   done: "",
 };
