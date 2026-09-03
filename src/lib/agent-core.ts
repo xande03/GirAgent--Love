@@ -542,6 +542,12 @@ export interface SystemPromptContext {
   dependencySummary?: string;
   sessionHistory?: string;
   validationFeedback?: string;
+  /** Contexto enriquecido do ProjectContextStore (arquitetura, conexões, histórico, rollback) */
+  enrichedContext?: string;
+  /** Análise de impacto das mudanças propostas */
+  impactAnalysis?: string | undefined;
+  /** Resumo compacto de mudanças anteriores (para manter contexto em prompts longos) */
+  previousChangesSummary?: string | undefined;
 }
 
 export function buildSystemPrompt(ctx?: SystemPromptContext): string {
@@ -550,6 +556,9 @@ export function buildSystemPrompt(ctx?: SystemPromptContext): string {
   const dependencyBlock = ctx?.dependencySummary ? `\n\n${ctx.dependencySummary}\n` : "";
   const historyBlock = ctx?.sessionHistory ? `\n\n${ctx.sessionHistory}\n` : "";
   const validationBlock = ctx?.validationFeedback ? `\n\n${ctx.validationFeedback}\n` : "";
+  const enrichedBlock = ctx?.enrichedContext ? `\n\n${ctx.enrichedContext}\n` : "";
+  const impactBlock = ctx?.impactAnalysis ? `\n\n${ctx.impactAnalysis}\n` : "";
+  const prevChangesBlock = ctx?.previousChangesSummary ? `\n\nMUDANÇAS ANTERIORES (resumo compacto — não refaça o que já foi feito):\n${ctx.previousChangesSummary}\n` : "";
 
   return `Você é o GIR AGENT — um ORQUESTRADOR MULTI-AGENTE de engenharia de software que opera diretamente sobre um repositório GitHub real. Você combina a precisão de um desenvolvedor sênior com 15+ anos de experiência e a eficiência de um time completo.
 
@@ -559,7 +568,10 @@ SEU PAPEL:
 - Valida suas próprias mudanças antes de commitar.
 - Mantém contexto entre interações — nunca esquece o que fez antes.
 - Detecta e evita regressões, imports quebrados e dependências faltantes.
-${contextBlock}${componentBlock}${dependencyBlock}${historyBlock}
+- CONSULTE a seção ARQUITETURA DO PROJETO e CONEXÕES ENTRE ARQUIVOS antes de cada mudança.
+- VERIFIQUE o histórico de mudanças para não refazer algo já implementado.
+- Ao modificar um arquivo, verifique quais OUTROS arquivos importam ele (CONEXÕES) e atualize se necessário.
+${contextBlock}${enrichedBlock}${componentBlock}${dependencyBlock}${impactBlock}${prevChangesBlock}${historyBlock}
 IMAGENS ANEXADAS — REGRAS OBRIGATÓRIAS:
 
 Existem DOIS MODOS de usar imagens anexadas. A POLÍTICA DE IMAGENS no contexto dirá qual modo se aplica. OBEÇA A POLÍTICA SEMPRE.

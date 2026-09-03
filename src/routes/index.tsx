@@ -290,6 +290,7 @@ async function downloadRepoZip(token: string, repoUrl: string, branch: string) {
 const SESSION_KEY = "xerife-session";
 const LAST_REPO_KEY = "xerife-last-repo";
 const PREVIEW_URL_KEY = "xerife-preview-url";
+const TURNS_KEY = "xerife-turns"; // persistir histórico de conversa
 
 function saveSession(token: string, repoUrl: string, repo: NonNullable<RepoState>, previewUrl?: string) {
   try {
@@ -310,6 +311,7 @@ function loadSession(): { token: string; repoUrl: string; repo: RepoState } | nu
 function clearSession() {
   try { sessionStorage.removeItem(SESSION_KEY); } catch {}
   try { localStorage.removeItem(PREVIEW_URL_KEY); } catch {}
+  try { localStorage.removeItem(TURNS_KEY); } catch {}
 }
 
 function getLastRepoUrl(): string | null {
@@ -318,6 +320,30 @@ function getLastRepoUrl(): string | null {
 
 function getSavedPreviewUrl(): string | null {
   try { return localStorage.getItem(PREVIEW_URL_KEY); } catch { return null; }
+}
+
+/* ── Persistir histórico de conversa (turns) no localStorage ── */
+function saveTurns(owner: string, repo: string, turns: Turn[]) {
+  try {
+    // Salvar apenas os turns compactados (sem attachments pesados)
+    const compact = turns.slice(-20).map((t) => ({
+      role: t.role,
+      content: t.content.slice(0, 2000), // limitar tamanho do conteúdo salvo
+      reasoning: t.reasoning?.slice(0, 500),
+      changedPaths: t.changedPaths,
+      commitUrl: t.commitUrl,
+      error: t.error,
+    }));
+    localStorage.setItem(`${TURNS_KEY}:${owner}/${repo}`, JSON.stringify(compact));
+  } catch {}
+}
+
+function loadTurns(owner: string, repo: string): Turn[] {
+  try {
+    const raw = localStorage.getItem(`${TURNS_KEY}:${owner}/${repo}`);
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch { return []; }
 }
 
 function Home() {
@@ -360,6 +386,11 @@ function Home() {
       setToken((cur) => cur || saved.token);
       setRepoUrl((cur) => cur || saved.repoUrl);
       setRepo((cur) => cur || saved.repo);
+      // Restaurar histórico de conversa persistido
+      const savedTurns = loadTurns(saved.repo.owner, saved.repo.repo);
+      if (savedTurns.length > 0) {
+        setTurns(savedTurns);
+      }
     }
     // Restore preview URL from localStorage
     const savedPreview = getSavedPreviewUrl();
@@ -379,6 +410,13 @@ function Home() {
       }
     } catch {}
   }, [previewUrl]);
+
+  /* Persistir histórico de conversa no localStorage quando muda */
+  useEffect(() => {
+    if (repo && turns.length > 0) {
+      saveTurns(repo.owner, repo.repo, turns);
+    }
+  }, [turns, repo]);
 
   /* Pre-fill last repo URL on connect screen */
   const [suggestedRepo, setSuggestedRepo] = useState("");
@@ -480,7 +518,7 @@ function Home() {
       const abort = new AbortController();
       abortRef.current = abort;
 
-      const history = turns.slice(-6).map((t) => ({ role: t.role, content: t.content }));
+      const history = turns.slice(-10).map((t) => ({ role: t.role, content: t.content.slice(0, 1500) }));
 
       try {
         const res = await fetch("/api/agent-stream", {

@@ -50,6 +50,10 @@ export async function handleAgentStream(request: Request): Promise<Response> {
   const { getVfs } = await import("./virtual-fs");
   const { DependencyTracker, ComponentRegistry } = await import("./dependency-tracker");
   const { runValidationPipeline, buildValidationFeedback } = await import("./validation-pipeline");
+  const {
+    buildProjectContext, getProjectContext, buildContextBlock,
+    updateContextAfterChange, buildImpactAnalysis, refreshProjectStructure,
+  } = await import("./project-context");
 
   const { clean: instruction, flagged } = sanitizeInstruction(body.instruction);
   const ref = parseRepoUrl(body.repoUrl);
@@ -74,10 +78,25 @@ export async function handleAgentStream(request: Request): Promise<Response> {
         const images = body.attachments.filter((a) => a.mime.startsWith("image/"));
         const intent: ImageIntent = body.imageIntent ?? classifyImageIntent(instruction);
 
-        // ── Auto-analyze project context ──
+        // ── Auto-analyze project context (ENRIQUECIDO com ProjectContextStore) ──
         console.log(`[agent-stream] Analisando contexto do projeto (${snap.files.length} arquivos)...`);
         const projectAnalysis = analyzeProjectContext(snap.files);
         console.log(`[agent-stream] Análise: ${projectAnalysis.framework} | ${projectAnalysis.styling} | ${projectAnalysis.routing}`);
+
+        // ── Build/refresh enriched project context (persistido entre solicitações) ──
+        let projCtx = getProjectContext(ref.owner, ref.repo);
+        if (!projCtx || projCtx.headSha !== snap.headSha) {
+          // Contexto não existe ou snapshot mudou — reconstruir
+          console.log(`[agent-stream] Construindo contexto enriquecido do projeto...`);
+          projCtx = buildProjectContext(
+            ref.owner, ref.repo, snap.branch, snap.headSha,
+            snap.files, snap.paths.length,
+          );
+          console.log(`[agent-stream] Contexto enriquecido: ${projCtx.fileConnections.length} conexões, ${projCtx.availableComponents.length} componentes, ${projCtx.sessionHistory.length} ações anteriores`);
+        } else {
+          console.log(`[agent-stream] Contexto enriquecido REUTILIZADO (TTL ativo): ${projCtx.fileConnections.length} conexões, ${projCtx.sessionHistory.length} ações anteriores`);
+        }
+        const enrichedContextBlock = buildContextBlock(projCtx);
 
         // ── Virtual File System ──
         const vfs = getVfs(ref.owner, ref.repo);
@@ -223,6 +242,20 @@ Regras:
         let imagesStripped = false;
         let imageFallbackReason = "";
 
+        // ── Build impact analysis for the instruction (heuristic) ──
+        const impactAnalysis = buildImpactAnalysis(
+          projCtx,
+          [], // no changed paths yet — we'll update after parsing
+          snap.paths.map((p) => p.path),
+        );
+
+        // ── Build previous changes summary from session history ──
+        const previousChangesSummary = projCtx.sessionHistory.length > 0
+          ? projCtx.sessionHistory.slice(-6).map((a) =>
+              `[${a.validationPassed ? "✓" : "✗"}] "${a.instruction.slice(0, 50)}" → ${a.changedPaths.slice(0, 3).join(", ")}${a.changedPaths.length > 3 ? ` +${a.changedPaths.length - 3}` : ""}`
+            ).join("\n")
+          : undefined;
+
         let fullText = "";
         for await (const chunk of chatStream([
           { role: "system", content: buildSystemPrompt({
@@ -230,6 +263,9 @@ Regras:
             componentRegistrySummary: componentRegSummary,
             dependencySummary: depTracker.getDependencySummary(),
             sessionHistory,
+            enrichedContext: enrichedContextBlock,
+            impactAnalysis: impactAnalysis || undefined,
+            previousChangesSummary,
           }) },
           { role: "user", content: userBlocks },
         ], {
@@ -257,14 +293,14 @@ Regras:
 
         // Parse the complete response
         type ParsedAgent = {
-          reasoning?: string;
-          plan?: string[];
-          summary?: string;
-          commitMessage?: string;
-          next_steps?: string[];
-          needsClarification?: boolean;
-          question?: string;
-          changes?: { path: string; action?: "upsert" | "delete"; content?: string }[];
+          reasoning?: string | undefined;
+          plan?: string[] | undefined;
+          summary?: string | undefined;
+          commitMessage?: string | undefined;
+          next_steps?: string[] | undefined;
+          needsClarification?: boolean | undefined;
+          question?: string | undefined;
+          changes?: { path: string; action?: "upsert" | "delete"; content?: string }[] | undefined;
         };
         let parsed: ParsedAgent;
         try {
@@ -273,7 +309,7 @@ Regras:
           // JSON parsing failed — try to extract all fields via regex as robust fallback
           const fallback = extractAllFieldsFallback(fullText);
           if (fallback && fallback.changes.length > 0) {
-            parsed = fallback;
+            parsed = { reasoning: fallback.reasoning, summary: fallback.summary, commitMessage: fallback.commitMessage, changes: fallback.changes };
           } else {
             // Log raw response for server-side debugging
             console.error("[agent-stream] Unparseable LLM response:", fullText.slice(0, 2000));
@@ -304,11 +340,11 @@ Regras:
             "result",
             JSON.stringify({
               applied: false,
-              reasoning: finalParsed.reasoning ?? "",
+              reasoning: parsed.reasoning ?? "",
               summary:
                 parsed.summary ??
                 "Não foi possível gerar alterações. Tente reformular com mais detalhes."
-              + (parsed.plan?.length ? `\n\n**Plano:**\n${parsed.plan.map((p, i) => `${i + 1}. ${p}`).join("\n")}` : ""),
+              + (parsed.plan?.length ? `\n\n**Plano:**\n${parsed.plan.map((p: string, i: number) => `${i + 1}. ${p}`).join("\n")}` : ""),
               imageIntent: intent,
               commit: null,
               changedPaths: [],
@@ -328,10 +364,10 @@ Regras:
         validateChanges(parsed.changes);
 
         // Run full Validation Pipeline
-        const changedPaths = finalParsed.changes!.map((c) => c.path);
+        const changedPaths = parsed.changes!.map((c) => c.path);
         const depSummary = depTracker.getDependencySummary(changedPaths);
         const validationResult = runValidationPipeline({
-          changes: finalParsed.changes!,
+          changes: parsed.changes!,
           repoPaths: snap.paths.map((p) => p.path),
           projectFiles: currentFiles,
           depTracker,
@@ -339,7 +375,7 @@ Regras:
         });
 
         if (validationResult.issues.length > 0) {
-          console.log(`[agent-stream] Validation: ${validationResult.issues.filter(i => i.severity === 'error').length} errors, ${validationResult.issues.filter(i => i.severity === 'warning').length} warnings`);
+          console.log(`[agent-stream] Validation: ${validationResult.issues.filter((i: {severity:string}) => i.severity === 'error').length} errors, ${validationResult.issues.filter((i: {severity:string}) => i.severity === 'warning').length} warnings`);
         }
 
         // ── FEEDBACK LOOP: auto-correção quando há erros de validação ──
@@ -362,6 +398,9 @@ Regras:
                   dependencySummary: depSummary,
                   sessionHistory,
                   validationFeedback: feedback,
+                  enrichedContext: enrichedContextBlock,
+                  impactAnalysis: impactAnalysis || undefined,
+                  previousChangesSummary,
                 }) },
                 { role: "user", content: userBlocks },
               ])) {
@@ -523,6 +562,27 @@ Regras:
         });
         console.log(`[agent-stream] VFS atualizado: ${vfs.getActionCount()} ações totais`);
 
+        // ── Update Project Context Store (persiste histórico entre solicitações) ──
+        updateContextAfterChange(
+          ref.owner, ref.repo,
+          instruction,
+          changes.map((c) => c.path),
+          commitResult?.sha,
+          commitResult?.url,
+          validationResult.passed,
+          validationResult.issues.filter(i => i.severity === "warning").length,
+          impactedDeps,
+        );
+        console.log(`[agent-stream] Contexto do projeto atualizado com ${changes.length} mudanças`);
+
+        // ── Refresh project structure in context store (deps, components, connections) ──
+        try {
+          const updatedFiles = vfs.toFileArray();
+          refreshProjectStructure(ref.owner, ref.repo, updatedFiles);
+        } catch (refreshErr) {
+          console.warn(`[agent-stream] Falha ao refresh estrutura do projeto (non-critical):`, (refreshErr as Error).message);
+        }
+
 send(
           "result",
           JSON.stringify({
@@ -541,12 +601,21 @@ send(
         send("phase", JSON.stringify({ phase: "done" }));
       } catch (err) {
         const errMsg = (err as Error).message ?? String(err);
-        // Translate cryptic abort errors into user-friendly messages
+        // Translate cryptic errors into user-friendly messages
         if (errMsg.includes("aborted") || errMsg.includes("AbortError")) {
           send("error", JSON.stringify({ message: "A requisição ao modelo de IA excedeu o tempo limite. Tente novamente com uma descrição mais curta ou sem imagens." }));
+        } else if (errMsg.includes("401") || errMsg.includes("API key")) {
+          send("error", JSON.stringify({ message: "Chave de API inválida ou expirada. Verifique a variável DEEPSEEK_API_KEY no servidor." }));
+        } else if (errMsg.includes("429") || errMsg.includes("rate limit")) {
+          send("error", JSON.stringify({ message: "Limite de requisições atingido (rate limit). Aguarde alguns segundos e tente novamente." }));
+        } else if (errMsg.includes("JSON") || errMsg.includes("parse")) {
+          send("error", JSON.stringify({ message: `O modelo retornou uma resposta que não pôde ser interpretada. Tente reformular a solicitação de forma mais específica.\n\nDetalhe: ${errMsg.slice(0, 200)}` }));
+        } else if (errMsg.includes("network") || errMsg.includes("ECONNREFUSED") || errMsg.includes("fetch failed")) {
+          send("error", JSON.stringify({ message: "Erro de conexão com a API do modelo. Verifique sua conexão com a internet e tente novamente." }));
         } else {
-          send("error", JSON.stringify({ message: errMsg }));
+          send("error", JSON.stringify({ message: `Erro inesperado: ${errMsg.slice(0, 300)}` }));
         }
+        console.error(`[agent-stream] Erro no stream:`, errMsg);
         send("phase", JSON.stringify({ phase: "done" }));
       } finally {
         controller.close();
