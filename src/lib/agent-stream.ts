@@ -296,6 +296,8 @@ Regras:
           }
         }
 
+        let finalParsed = parsed;
+
         if (!parsed.changes?.length) {
           send(
             "result",
