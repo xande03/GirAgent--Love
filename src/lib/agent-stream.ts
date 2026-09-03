@@ -256,18 +256,19 @@ Regras:
         }
 
         // Parse the complete response
-        let parsed;
+        type ParsedAgent = {
+          reasoning?: string;
+          plan?: string[];
+          summary?: string;
+          commitMessage?: string;
+          next_steps?: string[];
+          needsClarification?: boolean;
+          question?: string;
+          changes?: { path: string; action?: "upsert" | "delete"; content?: string }[];
+        };
+        let parsed: ParsedAgent;
         try {
-          parsed = extractJson<{
-            reasoning?: string;
-            plan?: string[];
-            summary?: string;
-            commitMessage?: string;
-            next_steps?: string[];
-            needsClarification?: boolean;
-            question?: string;
-            changes?: { path: string; action?: "upsert" | "delete"; content?: string }[];
-          }>(fullText);
+          parsed = extractJson<ParsedAgent>(fullText);
         } catch {
           // JSON parsing failed — try to extract all fields via regex as robust fallback
           const fallback = extractAllFieldsFallback(fullText);
@@ -295,6 +296,8 @@ Regras:
             return;
           }
         }
+
+        let finalParsed = parsed;
 
         if (!parsed.changes?.length) {
           send(
@@ -340,7 +343,6 @@ Regras:
         }
 
         // ── FEEDBACK LOOP: auto-correção quando há erros de validação ──
-        let finalParsed = parsed;
         const MAX_FEEDBACK_ROUNDS = 2;
 
         if (!validationResult.passed && MAX_FEEDBACK_ROUNDS > 0) {

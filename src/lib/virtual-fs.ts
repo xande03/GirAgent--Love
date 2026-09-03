@@ -26,17 +26,17 @@ export interface VfsAction {
   path: string;
   timestamp: number;
   /** Conteúdo ANTES da mudança (undefined para create) */
-  previousContent?: string;
+  previousContent?: string | undefined;
   /** Conteúdo DEPOIS da mudança (undefined para delete) */
-  newContent?: string;
+  newContent?: string | undefined;
   /** SHA do commit antes da operação */
-  beforeSha?: string;
+  beforeSha?: string | undefined;
   /** SHA do commit depois da operação */
-  afterSha?: string;
+  afterSha?: string | undefined;
   /** Instruction que gerou esta mudança */
-  instruction?: string;
+  instruction?: string | undefined;
   /** Arquivos dependentes detectados */
-  impactedDependencies?: string[];
+  impactedDependencies?: string[] | undefined;
 }
 
 export interface RollbackPoint {
