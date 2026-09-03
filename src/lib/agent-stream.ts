@@ -343,7 +343,6 @@ Regras:
         }
 
         // ── FEEDBACK LOOP: auto-correção quando há erros de validação ──
-        let finalParsed = parsed;
         const MAX_FEEDBACK_ROUNDS = 2;
 
         if (!validationResult.passed && MAX_FEEDBACK_ROUNDS > 0) {
