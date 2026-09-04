@@ -8,8 +8,9 @@ crie uma pagina web para desenvolvedores de projeto do GitHub. O objetivo é ger
 
 3. melhore o motor gráfico (LLM) para que aja semelhante aos motores gráficos e ambientes de desenvolvimento de VIBECOER como a Lovable, [Bolt.new](http://Bolt.new), Base44 entre outros . Usando o raciocínio e redes neurais adaptativas 
 
-chave api deepseek v4 flash: sk-ipr1olqfhj5q3f722x8egejwafiofgrl
-url: https://api.b.ai/v1
+chave api deepseek v4 flash 0731: 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
+url: https://integrate.api.nvidia.com/v1
+modelo: deepseek-ai/deepseek-v4-flash-0731
 
 This project was built with [Lovable](https://lovable.dev).
 

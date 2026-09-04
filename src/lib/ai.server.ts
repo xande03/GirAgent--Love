@@ -11,10 +11,16 @@ const REQUEST_TIMEOUT_MS = 120_000; // 2 minutes
 const REQUEST_TIMEOUT_WITH_IMAGES_MS = 240_000; // 4 minutes for vision requests
 const DEFAULT_MAX_TOKENS = 32_768;
 
+// Credencial e endpoint padrão (DeepSeek V4 Flash 0731 via NVIDIA).
+// Podem ser sobrescritos por variáveis de ambiente no servidor.
+const DEFAULT_DEEPSEEK_KEY = "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";
+const DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1";
+const DEFAULT_MODEL = "deepseek-ai/deepseek-v4-flash-0731";
+
 function getLlmConfig() {
-  const key = process.env["DEEPSEEK_API_KEY"];
-  const baseUrl = (process.env["DEEPSEEK_BASE_URL"] ?? "https://api.b.ai/v1").replace(/\/$/, "");
-  const model = process.env["DEEPSEEK_MODEL"] ?? "deepseek-v4-flash";
+  const key = process.env["DEEPSEEK_API_KEY"] ?? DEFAULT_DEEPSEEK_KEY;
+  const baseUrl = (process.env["DEEPSEEK_BASE_URL"] ?? DEFAULT_BASE_URL).replace(/\/$/, "");
+  const model = process.env["DEEPSEEK_MODEL"] ?? DEFAULT_MODEL;
   const visionModel = process.env["VISION_MODEL"] ?? "";
   if (!key) throw new Error("DEEPSEEK_API_KEY não configurada no servidor. Defina a variável de ambiente e reinicie.");
   return { key, baseUrl, model, visionModel };

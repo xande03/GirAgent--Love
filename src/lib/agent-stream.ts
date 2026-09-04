@@ -281,7 +281,7 @@ Regras:
 
         // If images were stripped, warn the user immediately
         if (imagesStripped && images.length > 0) {
-          console.error(`[agent-stream] O modelo '${process.env["DEEPSEEK_MODEL"] ?? "deepseek-v4-flash"}' NÃO suporta imagens. Imagens foram removidas antes do envio ao LLM.`);
+          console.error(`[agent-stream] O modelo '${process.env["DEEPSEEK_MODEL"] ?? "deepseek-ai/deepseek-v4-flash-0731"}' NÃO suporta imagens. Imagens foram removidas antes do envio ao LLM.`);
           send(
             "warning",
             JSON.stringify({
